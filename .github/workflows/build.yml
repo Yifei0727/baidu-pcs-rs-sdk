@@ -1,0 +1,100 @@
+name: Build Multi-Platform
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ '*' ]
+  pull_request:
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            useCross: true
+          - os: macos-14
+            target: aarch64-apple-darwin
+
+    env:
+      BAIDU_PCS_APP_KEY: ${{ secrets.BAIDU_PCS_APP_KEY }}
+      BAIDU_PCS_APP_SECRET: ${{ secrets.BAIDU_PCS_APP_SECRET }}
+      BAIDU_PCS_APP_NAME: ${{ secrets.BAIDU_PCS_APP_NAME }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ runner.os }}-${{ matrix.target }}
+
+      - name: Install cross
+        if: matrix.useCross == true
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: Check secrets
+        shell: bash
+        run: |
+          if [[ -n "${BAIDU_PCS_APP_KEY}" && -n "${BAIDU_PCS_APP_SECRET}" && -n "${BAIDU_PCS_APP_NAME}" ]]; then
+            echo "HAS_SECRETS=true" >> "$GITHUB_ENV"
+            echo "Secrets present: will build and upload artifacts."
+          else
+            echo "HAS_SECRETS=false" >> "$GITHUB_ENV"
+            echo "Secrets missing (likely from a fork PR): building will failed"
+            echo "Please config github action Repository secrets for your fork repository if you want to build and upload artifacts."
+            exit 1
+          fi
+
+      - name: Build (Windows) on ${{ matrix.os }}
+        if: runner.os == 'Windows'
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Build (Linux) on ${{ matrix.os }}
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          if [ "${{ matrix.useCross }}" = "true" ]; then
+            cross build --release --target ${{ matrix.target }}
+          else
+            cargo build --release --target ${{ matrix.target }}
+          fi
+      - name: Build (MacOS) on ${{ matrix.os }}
+        if: runner.os == 'macOS'
+        shell: bash
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Upload artifact
+        if: env.HAS_SECRETS == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: baidu-pcs-cli-rs-${{ matrix.target }}
+          path: |
+            target/${{ matrix.target }}/release/baidu-pcs-cli-rs
+            target/${{ matrix.target }}/release/baidu-pcs-cli-rs.exe
+          if-no-files-found: error
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/') && env.HAS_SECRETS == 'true'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            target/${{ matrix.target }}/release/baidu-pcs-cli-rs
+            target/${{ matrix.target }}/release/baidu-pcs-cli-rs.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
