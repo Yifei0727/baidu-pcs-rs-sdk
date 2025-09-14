@@ -1,0 +1,13 @@
+# 让 cross 在容器内透传构建所需的环境变量（供 Rust 的 env! 宏在编译期读取）
+[build.env]
+passthrough = [
+    "BAIDU_PCS_APP_KEY",
+    "BAIDU_PCS_APP_SECRET",
+    "BAIDU_PCS_APP_NAME",
+]
+
+[target.aarch64-unknown-linux-gnu]
+pre-build = [
+    "dpkg --add-architecture $CROSS_DEB_ARCH",
+    "apt-get update && apt-get --assume-yes install libssl-dev:$CROSS_DEB_ARCH"
+]

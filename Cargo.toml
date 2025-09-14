@@ -1,0 +1,41 @@
+[package]
+name = "baidu-pcs-rs-sdk"
+version = "0.1.1"
+edition = "2021"
+license = "MIT"
+
+authors = ["yifei0727"]
+description = "百度网盘命令行工具和RUST库"
+repository = "https://github.com/yifei0727/baidu-pcs-rs-sdk"
+categories = ["command-line-utilities", "filesystem", "accessibility"]
+
+[lib]
+name = "baidu_pcs_rs_sdk"
+path = "src/lib.rs"
+
+[[bin]]
+name = "baidu-pcs-cli-rs"
+path = "src/main.rs"
+
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+toml = "0.9.5"
+serde = { version = "1.0.196", features = ["derive"] }
+reqwest = { version = "0.12.15", features = ["multipart", "stream", "json", "blocking", "rustls-tls"] }
+serde_json = "1.0.112"
+tokio = { version = "1.12.0", features = ["full"] }
+getset = "0.1.2"
+chrono = { version = "0.4.19", features = ["serde"] }
+log = "0.4.20"
+tokio-util = "0.7.10"
+futures = "0.3.30"
+md-5 = "0.10.6"
+hex = "0.4.3"
+clap = { version = "4.4.18", features = ["derive"] }
+bytefmt = "0.1.7"
+indicatif = { version = "0.18.0", features = ["improved_unicode"] }
+simplelog = "0.12.1"
+directories = "6.0.0"
+byte-unit = "5.1.6"
