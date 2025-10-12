@@ -152,7 +152,7 @@ fn get_local_path(name: &str, path: Option<&String>) -> String {
     full_path.to_string_lossy().to_string()
 }
 
-pub(crate) fn run_download_task(args: &DownloadArgs, config: &Config, client: &BaiduPcsClient) {
+pub(crate) fn run_download_task(args: &DownloadArgs, _config: &Config, client: &BaiduPcsClient) {
     // 获取远程文件信息，获得文件大小
     let pb = ProgressBar::no_length();
     pb.set_style(ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{bar:72.cyan/blue}] {bytes}/{total_bytes} ({percent}%) {bytes_per_sec} ETA {eta_precise} | {msg}", )

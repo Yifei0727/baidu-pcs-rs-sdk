@@ -413,3 +413,6 @@ pub mod baidu_pcs_sdk {
         }
     }
 }
+
+// 顶层模块：自定义 DNS 解析能力（源文件位于 src/dns.rs）
+pub mod dns;

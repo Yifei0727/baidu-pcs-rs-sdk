@@ -1,4 +1,4 @@
-use crate::auth::device_auth;
+use crate::auth::device_auth_with_dns;
 use baidu_pcs_rs_sdk::baidu_pcs_sdk::PcsAccessToken;
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
@@ -10,6 +10,8 @@ use std::path::PathBuf;
 pub struct Config {
     pub baidu_pan: BaiduPan,
     pub local_pan: LocalConfig,
+    /// 自定义 DNS 服务器，逗号分隔，例如："8.8.8.8,1.1.1.1"（可为空，空则使用系统默认）
+    pub dns: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -82,6 +84,7 @@ pub fn config_load_or_init(
     custom_config: Option<&String>,
     local: Option<String>,
     remote: Option<String>,
+    dns: Option<&str>,
 ) -> Config {
     use std::io::Read;
     let path = get_config_file_path(custom_config);
@@ -93,7 +96,7 @@ pub fn config_load_or_init(
         );
         let local_root = local.unwrap_or_else(|| "/data/backup/".to_string());
         let remote_root = remote.unwrap_or_else(|| "/".to_string());
-        let pcs_token: PcsAccessToken = device_auth();
+        let pcs_token: PcsAccessToken = device_auth_with_dns(dns);
         let mut config: Config = Config {
             baidu_pan: BaiduPan {
                 access_token: pcs_token.get_access_token().to_string(),
@@ -105,6 +108,7 @@ pub fn config_load_or_init(
                 root_path: local_root.to_string(),
                 include_prefix: Some(false),
             },
+            dns: dns.map(|s| s.to_string()),
         };
         save_or_update_config(&mut config, custom_config);
     }

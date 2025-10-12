@@ -9,6 +9,8 @@ pub struct BaiduPanClient {
     runtime: tokio::runtime::Runtime,
     client: reqwest::Client,
     pcs_node: BaiduPcsApp,
+    /// 指定的 DNS 服务器（逗号分隔），用于网络请求解析域名
+    dns: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Getters)]
@@ -34,6 +36,8 @@ pub trait BaiduPanDeviceAuthClient {
     /// 构建客户端（提供应用的 AppKey 和 SecretKey）
     /// https://pan.baidu.com/union/doc/fl1x114ti
     fn with(app: BaiduPcsApp) -> Self;
+    /// 构建带 DNS 指定的客户端
+    fn with_dns(app: BaiduPcsApp, dns: Option<&str>) -> Self;
     /// 1. 获取设备码、用户码
     //
     // 既获取设备码 device code 、用户码 user code，依赖于以下请求链接：
@@ -132,13 +136,20 @@ impl BaiduPanClient {
 
 impl BaiduPanDeviceAuthClient for BaiduPanClient {
     fn with(app: BaiduPcsApp) -> Self {
-        let builder = reqwest::Client::builder();
+        Self::with_dns(app, None)
+    }
+
+    fn with_dns(app: BaiduPcsApp, dns: Option<&str>) -> Self {
+        let mut builder = reqwest::Client::builder();
+        // 应用自定义 DNS（预解析固定域名）
+        builder = crate::dns::apply_custom_dns(builder, dns, &["openapi.baidu.com"]);
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert("User-Agent", "pan.baidu.com".parse().unwrap());
         Self {
             client: builder.default_headers(headers).build().unwrap(),
             pcs_node: app,
             runtime: tokio::runtime::Runtime::new().unwrap(),
+            dns: dns.map(|s| s.to_string()),
         }
     }
 
@@ -219,9 +230,9 @@ mod test {
     use std::env;
 
     const BAIDU_PCS_APP: BaiduPcsApp = BaiduPcsApp {
-        app_key: env!("BAIDU_PCS_APP_KEY").to_string(),
-        app_secret: env!("BAIDU_PCS_APP_SECRET").to_string(),
-        app_name: env!("BAIDU_PCS_APP_NAME").to_string(),
+        app_key: env!("BAIDU_PCS_APP_KEY"),
+        app_secret: env!("BAIDU_PCS_APP_SECRET"),
+        app_name: env!("BAIDU_PCS_APP_NAME"),
     };
     #[test]
     fn test_get_user_code() {

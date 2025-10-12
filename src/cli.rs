@@ -14,6 +14,10 @@ pub struct CommandLineArgs {
     /// 是否开启 debug 日志
     #[arg(long, action = ArgAction::SetTrue)]
     pub debug: bool,
+
+    /// 指定用于解析域名的 DNS 服务器地址（支持逗号分隔多个，格式如 8.8.8.8 或 8.8.8.8:53）
+    #[arg(long, default_value = None)]
+    pub dns: Option<String>,
 }
 
 #[derive(Subcommand)]

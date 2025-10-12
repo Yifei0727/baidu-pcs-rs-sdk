@@ -6,8 +6,12 @@ use log::{debug, error, info};
 use std::thread::sleep;
 
 pub fn device_auth() -> PcsAccessToken {
+    device_auth_with_dns(None)
+}
+
+pub fn device_auth_with_dns(dns: Option<&str>) -> PcsAccessToken {
     debug!("device_auth");
-    let client: BaiduPanClient = BaiduPanDeviceAuthClient::with(BAIDU_PCS_APP);
+    let client: BaiduPanClient = BaiduPanDeviceAuthClient::with_dns(BAIDU_PCS_APP, dns);
     let ticket = client.get_user_code();
     println!(
         "请在浏览器中打开网址: {} \n并输入验证码: {}",
@@ -36,7 +40,7 @@ pub fn device_auth() -> PcsAccessToken {
                     _ => {
                         // "invalid_grant"
                         error!("{}", error.error());
-                        return device_auth();
+                        return device_auth_with_dns(dns);
                     }
                 }
             }
@@ -44,8 +48,8 @@ pub fn device_auth() -> PcsAccessToken {
     }
 }
 
-pub fn renew_token(config: &mut Config, custom_config: Option<&String>) {
-    let auth_client: BaiduPanClient = BaiduPanDeviceAuthClient::with(BAIDU_PCS_APP);
+pub fn renew_token(config: &mut Config, custom_config: Option<&String>, dns: Option<&str>) {
+    let auth_client: BaiduPanClient = BaiduPanDeviceAuthClient::with_dns(BAIDU_PCS_APP, dns);
     let token = auth_client.refresh_access_token(&PcsAccessToken::new(
         config.baidu_pan.access_token.as_str(),
         (config.baidu_pan.expires_at - chrono::Utc::now().timestamp()) as u32,
@@ -64,7 +68,7 @@ pub fn renew_token(config: &mut Config, custom_config: Option<&String>) {
                 error.error_description()
             );
             info!("尝试重新认证授权...");
-            let pcs_token: PcsAccessToken = device_auth();
+            let pcs_token: PcsAccessToken = device_auth_with_dns(dns);
             config.update_token(pcs_token);
             save_or_update_config(config, custom_config);
         }

@@ -65,6 +65,8 @@ pub struct BaiduPcsClient {
     access_token: String,
     user_info: Option<PcsUserInfo>,
     disk_quota: Option<PcsDiskQuota>,
+    /// 指定的 DNS 服务器（逗号分隔），用于网络请求解析域名
+    dns: Option<String>,
 }
 
 fn get_file_block_list(
@@ -184,7 +186,12 @@ impl Display for ProgressInfo {
 
 impl BaiduPcsClient {
     pub fn new(access_token: &str, app: BaiduPcsApp) -> Self {
-        let builder = Client::builder();
+        Self::new_with_dns(access_token, app, None)
+    }
+
+    pub fn new_with_dns(access_token: &str, app: BaiduPcsApp, dns: Option<&str>) -> Self {
+        let mut builder = Client::builder();
+        // 应用用户代理与通用头
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert("User-Agent", "pan.baidu.com".parse().unwrap());
         headers.insert(
@@ -192,7 +199,12 @@ impl BaiduPcsClient {
             "application/x-www-form-urlencoded".parse().unwrap(),
         );
         headers.insert("Accept", "application/json".parse().unwrap());
-
+        // 应用自定义 DNS（预解析固定域名）
+        builder = crate::dns::apply_custom_dns(
+            builder,
+            dns,
+            &["pan.baidu.com", "d.pcs.baidu.com", "openapi.baidu.com"],
+        );
         Self {
             pcs_app: app,
             client: builder.default_headers(headers).build().unwrap(),
@@ -200,6 +212,7 @@ impl BaiduPcsClient {
             runtime: tokio::runtime::Runtime::new().unwrap(),
             user_info: None,
             disk_quota: None,
+            dns: dns.map(|s| s.to_string()),
         }
     }
 
@@ -831,7 +844,6 @@ impl BaiduPcsClient {
             .or_else(|| server.bak_servers().first())
             .map(|s| s.server().clone())
             .unwrap_or_else(|| String::from(PREFIX_FILE_SERVER));
-        // let upload_server = "http://127.0.0.1:5173".to_string();
         info!("上传分片 {} 到服务器 {}", progress_info, upload_server);
         #[derive(Serialize)]
         struct Query<'a> {
@@ -851,25 +863,22 @@ impl BaiduPcsClient {
             #[serde(rename = "partseq")]
             part_seq: u32,
         }
-        //                .query(&[
-        //                     // 本接口固定为upload
-        //                     ("method", "upload"),
-        //                     ("access_token", self.access_token.as_str()),
-        //                     // 固定值 tmpfile
-        //                     ("type", "tmpfile"),
-        //                     // 上传后使用的文件绝对路径，需要urlencode，需要与上一个阶段预上传precreate接口中的path保持一致
-        //                     ("path", upload_task.path.as_str()),
-        //                     // 上一个阶段预上传precreate接口下发的uploadid
-        //                     ("uploadid", upload_task.upload_id.as_str()),
-        //                     // 文件分片的位置序号，从0开始，参考上一个阶段预上传precreate接口返回的block_list
-        //                     ("partseq", part.to_string().as_str()),
-        //                 ])
 
         let fut = async {
             let form = Self::create_form(local_file.path.as_str(), &progress_info, progress_cb)
                 .await
                 .unwrap();
-            self.client
+            // 为上传服务器单独创建带解析覆盖的客户端
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert("User-Agent", "pan.baidu.com".parse().unwrap());
+            let builder = crate::dns::apply_custom_dns(
+                Client::builder(),
+                self.dns.as_deref(),
+                &[upload_server.as_str()],
+            );
+            let upload_client = builder.default_headers(headers).build().unwrap();
+
+            upload_client
                 .post(format!("{}{}", upload_server, PATH))
                 .query(&Query {
                     method: "upload",
@@ -1150,13 +1159,30 @@ impl BaiduPcsClient {
             download_link,
             self.access_token.as_str()
         );
+        // 提取下载链接的主机名，用于按需解析
+        let host_opt = {
+            if let Some(rest) = full_url.split("//").nth(1) {
+                Some(rest.split('/').next().unwrap_or(""))
+            } else {
+                None
+            }
+        };
         let fut = async {
-            let mut resp = self
-                .client
-                .get(full_url.as_str())
-                .send()
-                .await
-                .map_err(|e| AppError::new(AppErrorType::Network, e.to_string().as_str(), None))?;
+            // 针对下载主机构建一个支持自定义 DNS 的临时客户端
+            let client = if let Some(host) = host_opt {
+                let mut headers = reqwest::header::HeaderMap::new();
+                headers.insert("User-Agent", "pan.baidu.com".parse().unwrap());
+                let builder =
+                    crate::dns::apply_custom_dns(Client::builder(), self.dns.as_deref(), &[host]);
+                builder.default_headers(headers).build().unwrap()
+            } else {
+                self.client.clone()
+            };
+
+            let mut resp =
+                client.get(full_url.as_str()).send().await.map_err(|e| {
+                    AppError::new(AppErrorType::Network, e.to_string().as_str(), None)
+                })?;
 
             let total_bytes = resp.content_length().unwrap_or(0);
             let mut file = tokio::fs::File::options()
@@ -1427,7 +1453,7 @@ mod test {
             &client.get_user_info().unwrap(),
             format!("{}/back.tar.gz", env::var("HOME").unwrap()).as_str(),
         )
-        .unwrap();
+            .unwrap();
         let upload_task = PcsFileSlicePrepareResult {
             path: "/backup/text.rar".to_string(),
             upload_id: "P1-MTAuNDEuMTUuMTU6MTcwNjcyMjczNjo4NzkxMDIxNjg3NzQ1ODUyNTY5".to_string(),

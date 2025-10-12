@@ -8,7 +8,7 @@ mod cli;
 mod config;
 mod sync;
 
-use crate::auth::{device_auth, first_app_use, renew_token};
+use crate::auth::{device_auth_with_dns, first_app_use, renew_token};
 use crate::cli::{CommandLineArgs, Commands};
 use crate::config::{config_load_or_init, get_config_file_path, save_or_update_config, Config};
 use baidu_pcs_rs_sdk::baidu_pcs_sdk::pcs::BaiduPcsClient;
@@ -50,16 +50,22 @@ fn main() {
         }
     }
 
-    // 加载配置
-    let mut config: Config = config_load_or_init(cli.config.as_ref(), None, None);
+    // 加载配置（传递 CLI 指定的 DNS，用于首次认证和默认写入配置）
+    let mut config: Config =
+        config_load_or_init(cli.config.as_ref(), None, None, cli.dns.as_deref());
 
     if config.is_need_refresh_token() {
         info!("Access token (即将)过期，正在刷新...");
-        renew_token(&mut config, cli.config.as_ref());
+        // Clone DNS options first to avoid borrowing from `config` while passing `&mut config`.
+        let dns_opt_owned: Option<String> = config.dns.clone().or(cli.dns.clone());
+        renew_token(&mut config, cli.config.as_ref(), dns_opt_owned.as_deref());
         info!("Access token 刷新成功");
     }
-    let mut client: BaiduPcsClient =
-        BaiduPcsClient::new(config.baidu_pan.access_token.as_str(), BAIDU_PCS_APP);
+    let mut client: BaiduPcsClient = BaiduPcsClient::new_with_dns(
+        config.baidu_pan.access_token.as_str(),
+        BAIDU_PCS_APP,
+        config.dns.as_deref().or(cli.dns.as_deref()),
+    );
     match client.ware() {
         Ok(()) => {}
         Err(e) => {
@@ -70,8 +76,11 @@ fn main() {
     match &cli.command {
         Some(Commands::Auth) => {
             if !config.baidu_pan.access_token.is_empty() && !config.is_need_refresh_token() {
-                let client =
-                    BaiduPcsClient::new(config.baidu_pan.access_token.as_str(), BAIDU_PCS_APP);
+                let client = BaiduPcsClient::new_with_dns(
+                    config.baidu_pan.access_token.as_str(),
+                    BAIDU_PCS_APP,
+                    config.dns.as_deref().or(cli.dns.as_deref()),
+                );
                 if let Ok(info) = client.get_user_info() {
                     println!("当前登录凭证 {} {} ({})仍然有效，无需重新认证。如需切换账号可另外指定 --config 参数切换账号配置", info.baidu_name() ,info.netdisk_name(), match info.vip_type() {
                         0 => "普通用户".to_string(),
@@ -83,7 +92,7 @@ fn main() {
                 }
             }
             println!("执行认证授权...");
-            let token = device_auth();
+            let token = device_auth_with_dns(config.dns.as_deref().or(cli.dns.as_deref()));
             config.update_token(token);
             save_or_update_config(&mut config, None);
         }
