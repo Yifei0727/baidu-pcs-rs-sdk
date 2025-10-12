@@ -15,6 +15,7 @@
         - 列出目录内容
         - 上传（支持大文件分片，进度条）与下载
         - 删除文件/目录（支持递归）
+        - 自定义 DNS 服务器（支持逗号分隔，按需加速/规避 DNS 污染）
 
 2. 用户使用说明
 
@@ -40,11 +41,18 @@
       > export BAIDU_PCS_APP_SECRET="7w6wdSFsTk6Vv586r1W1ozHLoDGhXogD"
       > cargo install baidu-pcs-rs-sdk
       > ```
-      > * Windows (PowerShell) 示例
+      > * Windows cmd.exe 示例
+      > ```bat
+      > set BAIDU_PCS_APP_NAME=bpcs_uploader
+      > set BAIDU_PCS_APP_KEY=uFBSHEwWE6DD94SQx9z77vgG
+      > set BAIDU_PCS_APP_SECRET=7w6wdSFsTk6Vv586r1W1ozHLoDGhXogD
+      > cargo install baidu-pcs-rs-sdk
+      > ```
+      > * Windows PowerShell 示例
       > ```powershell
-      > set BAIDU_PCS_APP_NAME="bpcs_uploader"
-      > set BAIDU_PCS_APP_KEY="uFBSHEwWE6DD94SQx9z77vgG"
-      > set BAIDU_PCS_APP_SECRET="7w6wdSFsTk6Vv586r1W1ozHLoDGhXogD"
+      > $Env:BAIDU_PCS_APP_NAME="bpcs_uploader"
+      > $Env:BAIDU_PCS_APP_KEY="uFBSHEwWE6DD94SQx9z77vgG"
+      > $Env:BAIDU_PCS_APP_SECRET="7w6wdSFsTk6Vv586r1W1ozHLoDGhXogD"
       > cargo install baidu-pcs-rs-sdk
       > ```
 
@@ -75,18 +83,20 @@
     - 通用参数：
         - --config: 指定配置文件路径
         - --debug: 开启 debug 日志
+        - --dns: 指定用于解析 pan.baidu.com / d.pcs.baidu.com / openapi.baidu.com 的 DNS 服务器
+                 （逗号分隔，支持形如 8.8.8.8 或 223.5.5.5:53 的地址）
     - 子命令：
         - `auth`（别名: `login`）: 进行设备码授权并保存 token
         - `quota`（别名: `df`, `du`）: 显示容量配额
             - -H/--human，或 -k/--kb，-m/--mb，-g/--gb 控制单位
         - `list` <remote>（别名: `ls`）: 列出目录内容
             - --recursive 递归列出
-        - `upload`（别名: `up` `sz`）: 上传/备份
+        - `upload`（别名: `up` `tx`）: 上传/备份
             - -l/--local <path> 本地路径（文件或目录），默认 /data/backup/
             - -r/--remote <path> 网盘路径，默认 /
             - --recursive 目录时递归（默认关）
             - -K/--include-prefix 当指定 -l 时，是否保留本地路径前缀拼接到远端
-        - `download`（别名: `dl` `rz`）: 下载
+        - `download`（别名: `dl` `rx`）: 下载
             - --recursive 当 remote 为目录时递归下载
             - <remote> 远端路径
             - [--local <path>] 本地保存目录（不指定则按文件名保存到当前目录）
@@ -98,6 +108,32 @@
 
     * 小文件上传 upload_single_file 受路径限制：仅允许 /apps/{app-name}/ 前缀；CLI 内的大文件上传（upload_large_file）不受该限制。
     * 下载目录时需加 --recursive，否则只尝试按文件处理。
+
+2.4 自定义 DNS 解析
+
+    - 作用：在部分网络环境（公司/校园网、DNS 污染、跨境网络）下，通过自定义 DNS 服务器提升解析稳定性或速度。
+    - 作用范围：程序会使用给定的 DNS 服务器预解析并固定以下域名的访问 IP：
+      pan.baidu.com、d.pcs.baidu.com、openapi.baidu.com（HTTP 80/HTTPS 443 均会固定）。
+    - 使用方式：
+        1) 临时指定（命令行）
+           - Windows cmd.exe
+             ```bat
+             baidu-pcs-cli-rs --dns 8.8.8.8,1.1.1.1 quota --human
+             ```
+           - Windows PowerShell
+             ```powershell
+             baidu-pcs-cli-rs --dns "8.8.8.8,1.1.1.1" quota --human
+             ```
+           - Linux/macOS（Bash/Zsh）
+             ```bash
+             baidu-pcs-cli-rs --dns '223.5.5.5:53,114.114.114.114' dl /a.txt
+             ```
+        2) 持久生效（写入配置文件）
+           - 首次运行携带 --dns 参数进行 auth 或其他命令，将把该值写入配置文件。
+           - 也可手动在配置文件中添加/修改 dns 字段（见“配置文件说明”）。
+    - 格式：逗号分隔的 IP 或 IP:端口，允许空格，例如：
+      "8.8.8.8, 1.1.1.1" 或 "223.5.5.5:53,114.114.114.114"。
+    - 优先级：若同时在“配置文件”和“命令行”指定 DNS，将优先使用配置文件中的值；配置文件未设置时才使用命令行传入的值。
 
 3. 开发者调用说明（Rust SDK）
 
@@ -111,6 +147,8 @@
         - BaiduPcsApp { app_key, app_secret, app_name }（均为 'static 字符串）
         - BaiduPcsClient::new(access_token, app)
         - client.ware() 会预拉取用户信息与配额信息
+      如需自定义 DNS：
+        - BaiduPcsClient::new_with_dns(access_token, app, Some("8.8.8.8,1.1.1.1"))
 
    3.3 常用 API 速览
 
@@ -157,6 +195,16 @@
        - macOS: ~/Library/Application Support
        - Windows: {FOLDERID_RoamingAppData}（通常为 C:\Users\{用户}\AppData\Roaming）
 
+    - 主要字段：
+        - baidu_pan: { access_token, refresh_token, expires_at, root_path }
+        - local_pan: { root_path, include_prefix }
+        - dns: 可选，示例 "8.8.8.8,1.1.1.1"（为空表示使用系统默认 DNS）
+
+    - 示例片段：
+      ```toml
+      dns = "223.5.5.5:53,114.114.114.114"
+      ```
+
 5. 日志与调试
 
     - 日志路径: {系统临时目录}/baidu-pcs-rs/logs
@@ -167,4 +215,4 @@
     - 编译时报 “环境变量未定义”：需在编译/安装前导出 BAIDU_PCS_APP_NAME/KEY/SECRET。
     - 小文件上传 31064 错误：请将目标路径置于 /apps/{app-name}/ 下，或改用大文件分片上传接口。
     - 目录下载失败：请添加 --recursive。
-
+    - DNS 不生效：请确认 --dns 格式为 逗号分隔的 IP 或 IP:端口；首次运行时可携带 --dns 以写入配置文件。若配置文件与命令行同时指定，将优先使用配置文件中的 dns。
