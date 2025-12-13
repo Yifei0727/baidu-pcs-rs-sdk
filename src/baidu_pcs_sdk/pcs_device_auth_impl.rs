@@ -1,4 +1,5 @@
 use crate::baidu_pcs_sdk::{BaiduPcsApp, PcsAccessToken, PcsError};
+use crate::dns;
 use getset::Getters;
 use log::info;
 use serde::de::DeserializeOwned;
@@ -140,9 +141,8 @@ impl BaiduPanDeviceAuthClient for BaiduPanClient {
     }
 
     fn with_dns(app: BaiduPcsApp, dns: Option<&str>) -> Self {
-        let mut builder = reqwest::Client::builder();
         // 应用自定义 DNS（预解析固定域名）
-        builder = crate::dns::apply_custom_dns(builder, dns, &["openapi.baidu.com"]);
+        let builder = crate::dns::use_custom_dns_if_present(builder, dns);
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert("User-Agent", "pan.baidu.com".parse().unwrap());
         Self {
