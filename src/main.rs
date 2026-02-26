@@ -96,15 +96,15 @@ fn main() {
             config.update_token(token);
             save_or_update_config(&mut config, None);
         }
-        Some(Commands::Download(args)) => {
-            println!("下载: {:?} -> {:?}", args.remote, args.local);
+        Some(Commands::Rx(args)) => {
+            println!("下载: {} -> {}", args.remote, args.local.as_deref().unwrap_or("."));
             sync::run_download_task(args, &config, &client);
         }
-        Some(Commands::Upload(args)) => {
-            println!("上传: {:?} -> {:?}", args.local, args.remote);
+        Some(Commands::Tx(args)) => {
+            println!("上传: {} -> {}", args.local, args.remote);
             sync::run_upload_task(args, &config, &client);
         }
-        Some(Commands::List(args)) => {
+        Some(Commands::Ls(args)) => {
             println!("列出网盘文件: {:?} 递归: {}", args.remote, args.recursive);
             let list = client.list_dir(args.remote.as_str());
             match list {
@@ -129,26 +129,35 @@ fn main() {
                 }
             }
         }
-        Some(Commands::Remove(args)) => {
+        Some(Commands::Rm(args)) => {
             println!("即将删除网盘文件: {:?}", args.remote);
-
-            let files = client.list_dir(args.remote.as_str()).unwrap();
-            if args.recursive {
-                // 当制定了递归删除时，删除该目录下的所有文件（如果是文件夹）
-                let paths: Vec<String> =
-                    files.list().iter().map(|f| f.path().to_string()).collect();
-                let result = client.delete(paths.as_ref(), Some(false));
-                match result {
-                    Ok(res) => {
-                        println!("删除成功: {:?}", res);
-                    }
-                    Err(e) => {
-                        eprintln!("删除失败: {}", e);
-                    }
+            let result = client.delete(&args.remote, Some(false));
+            match result {
+                Ok(res) => {
+                    println!("删除成功: {:?}", res);
                 }
-            } else {
-                println!("xxx")
+                Err(e) => {
+                    eprintln!("删除失败: {}", e);
+                }
             }
+        }
+        Some(Commands::Cp(args)) => {
+            println!("复制: {} -> {}", args.src, args.dest);
+            match client.copy_file(&args.src, &args.dest) {
+                Ok(res) => println!("复制成功: {:?}", res),
+                Err(e) => eprintln!("复制失败: {}", e),
+            }
+        }
+        Some(Commands::Mv(args)) => {
+            println!("移动: {} -> {}", args.src, args.dest);
+            match client.move_file(&args.src, &args.dest) {
+                Ok(res) => println!("移动成功: {:?}", res),
+                Err(e) => eprintln!("移动失败: {}", e),
+            }
+        }
+        Some(Commands::Backup(args)) => {
+            println!("备份: {} -> {}", args.local, args.remote);
+            sync::run_backup_task(args, &client);
         }
         Some(Commands::Quota(args)) => match client.get_user_quota(true, true) {
             Ok(quota) => {

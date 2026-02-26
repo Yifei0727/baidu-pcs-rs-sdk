@@ -25,76 +25,107 @@ pub enum Commands {
     /// 认证授权
     #[command(alias = "login")]
     Auth,
-    /// 下载文件
-    #[command(alias = "dl", alias = "rx")]
-    Download(DownloadArgs),
-    /// 上传文件
-    #[command(alias = "up", alias = "tx")]
-    Upload(UploadArgs),
-    /// 列出网盘文件
-    #[command(alias = "ls")]
-    List(ListArgs),
-    /// 删除网盘文件
-    #[command(alias = "rm", alias = "del")]
-    Remove(RemoveArgs),
+    /// 列出远程目录
+    #[command(alias = "list")]
+    Ls(LsArgs),
+    /// 复制远程文件/目录
+    #[command(alias = "copy")]
+    Cp(CpArgs),
+    /// 移动/重命名远程文件/目录
+    #[command(alias = "rename")]
+    Mv(MvArgs),
+    /// 删除远程文件/目录
+    #[command(alias = "del", alias = "remove")]
+    Rm(RmArgs),
+    /// 上传（本地 → 远程）
+    #[command(alias = "upload", alias = "up")]
+    Tx(TxArgs),
+    /// 下载（远程 → 本地）
+    #[command(alias = "download", alias = "dl")]
+    Rx(RxArgs),
+    /// 备份（仅上传远程不存在的文件）
+    Backup(BackupArgs),
     /// 显示磁盘配额
     #[command(alias = "df", alias = "du")]
     Quota(DiskQuotaArgs),
 }
 
-/// 上传（备份）命令参数
+/// ls <remote> [-r]
 #[derive(Args)]
-pub struct UploadArgs {
-    /// 如果是目录，是否递归下载，默认 false
-    #[arg(long = "recursive", default_value = "false", action = ArgAction::SetTrue)]
+pub struct LsArgs {
+    /// 远程路径
+    pub remote: String,
+    /// 递归列出子目录
+    #[arg(short = 'r', long = "recursive", action = ArgAction::SetTrue)]
     pub recursive: bool,
-    /// 要备份的本地文件夹路径
-    /// 可选 默认本地 /data/backup/
-    #[arg(short = 'l', long = "local")]
-    pub local: Option<String>,
-    /// 备份到百度网盘的路径 可选 默认 /
-    /// 如果不存在则创建。
-    /// 即默认将 本地 /data/backup/ 备份到百度网盘的 /data/backup/
-    #[arg(short = 'r', long = "remote")]
-    pub remote: Option<String>,
-    /// 是否包含前缀
-    /// 默认 false
-    #[arg(short = 'K', default_value = "false", action = ArgAction::SetTrue)]
-    pub include_prefix: bool,
+}
 
-    /// 上传完成后是否删除本地源文件
+/// cp <src> <dest>  （远程 → 远程）
+#[derive(Args)]
+pub struct CpArgs {
+    /// 远程源路径
+    pub src: String,
+    /// 远程目标路径
+    pub dest: String,
+}
+
+/// mv <src> <dest>  （远程 → 远程）
+#[derive(Args)]
+pub struct MvArgs {
+    /// 远程源路径
+    pub src: String,
+    /// 远程目标路径
+    pub dest: String,
+}
+
+/// rm <remote>... [-r]
+#[derive(Args)]
+pub struct RmArgs {
+    /// 远程路径（支持多个）
+    #[arg(required = true)]
+    pub remote: Vec<String>,
+    /// 递归删除子目录
+    #[arg(short = 'r', long = "recursive", action = ArgAction::SetTrue)]
+    pub recursive: bool,
+}
+
+/// tx <local> <remote> [-r] [--remove-source]
+#[derive(Args)]
+pub struct TxArgs {
+    /// 本地源路径
+    pub local: String,
+    /// 远程目标路径
+    pub remote: String,
+    /// 递归上传目录
+    #[arg(short = 'r', long = "recursive", action = ArgAction::SetTrue)]
+    pub recursive: bool,
+    /// 上传完成后删除本地源文件
     #[arg(long = "remove-source", action = ArgAction::SetTrue)]
     pub remove_source: bool,
 }
 
-/// 下载命令参数
+/// rx <remote> [local] [-r]
 #[derive(Args)]
-pub struct DownloadArgs {
-    /// 如果是目录，是否递归下载，默认 false
-    #[arg( long = "recursive", default_value = "false", action = ArgAction::SetTrue)]
-    pub(crate) recursive: bool,
-    /// 网盘文件路径
-    pub(crate) remote: String,
-    /// 本地保存路径
-    pub(crate) local: Option<String>,
+pub struct RxArgs {
+    /// 远程源路径
+    pub remote: String,
+    /// 本地目标路径（默认当前目录）
+    pub local: Option<String>,
+    /// 递归下载目录
+    #[arg(short = 'r', long = "recursive", action = ArgAction::SetTrue)]
+    pub recursive: bool,
 }
 
+/// backup <local> <remote> [--remove-source]
 #[derive(Args)]
-pub struct ListArgs {
-    /// 网盘路径 可选 默认 /
-    pub(crate) remote: String,
-    /// 是否递归列出子目录
-    #[arg(long = "recursive", default_value = "false", action = ArgAction::SetTrue)]
-    pub(crate) recursive: bool,
-}
-
-#[derive(Args)]
-pub struct RemoveArgs {
-    /// 网盘路径
-    pub(crate) remote: String,
-    /// 是否递归删除子目录
-    #[arg(long = "recursive", default_value = "false", action = ArgAction::SetTrue)]
-    pub(crate) recursive: bool,
+pub struct BackupArgs {
+    /// 本地源目录/文件
+    pub local: String,
+    /// 远程目标目录
+    pub remote: String,
+    /// 上传完成后删除本地源文件
+    #[arg(long = "remove-source", action = ArgAction::SetTrue)]
+    pub remove_source: bool,
 }
 
 #[derive(Args)]

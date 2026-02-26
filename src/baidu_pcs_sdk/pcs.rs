@@ -436,6 +436,90 @@ impl BaiduPcsClient {
         )
     }
 
+    /// 复制远程文件或目录
+    /// 本接口用于复制文件或目录。 https://pan.baidu.com/union/doc/mksg0s9l4
+    /// # Arguments
+    /// * `src` - 源文件/目录的绝对路径
+    /// * `dest` - 目标绝对路径（如以 / 结尾则保留原文件名）
+    pub fn copy_file(
+        &self,
+        src: &str,
+        dest: &str,
+    ) -> Result<crate::baidu_pcs_sdk::PcsFileTaskOperationResult, AppError> {
+        self.file_manager_copy_or_move("copy", src, dest)
+    }
+
+    /// 移动/重命名远程文件或目录
+    /// 本接口用于移动或重命名文件或目录。 https://pan.baidu.com/union/doc/mksg0s9l4
+    /// # Arguments
+    /// * `src` - 源文件/目录的绝对路径
+    /// * `dest` - 目标绝对路径（如以 / 结尾则保留原文件名）
+    pub fn move_file(
+        &self,
+        src: &str,
+        dest: &str,
+    ) -> Result<crate::baidu_pcs_sdk::PcsFileTaskOperationResult, AppError> {
+        self.file_manager_copy_or_move("move", src, dest)
+    }
+
+    /// filemanager 接口的 copy/move 通用实现
+    fn file_manager_copy_or_move(
+        &self,
+        opera: &str,
+        src: &str,
+        dest: &str,
+    ) -> Result<crate::baidu_pcs_sdk::PcsFileTaskOperationResult, AppError> {
+        const PATH: &str = "/rest/2.0/xpan/file";
+        #[derive(Serialize)]
+        struct Params<'a> {
+            method: &'a str,
+            opera: &'a str,
+        }
+        #[derive(Serialize)]
+        struct FileManagerAttributes {
+            r#async: u8,
+            #[serde(alias = "filelist")]
+            file_list: String,
+        }
+        let dest_path = PathBuf::from(dest);
+        let (dest_dir, newname) = if dest.ends_with('/') {
+            let src_name = PathBuf::from(src)
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            (dest.trim_end_matches('/').to_string(), src_name)
+        } else {
+            let dir = dest_path
+                .parent()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|| "/".to_string());
+            let name = dest_path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            (dir, name)
+        };
+        let file_list = serde_json::json!([{
+            "path": src,
+            "dest": dest_dir,
+            "newname": newname,
+            "ondup": "fail"
+        }]);
+        let attrs = FileManagerAttributes {
+            r#async: 1,
+            file_list: file_list.to_string(),
+        };
+        self.request(
+            Post,
+            PATH,
+            Params {
+                method: "filemanager",
+                opera,
+            },
+            Some(attrs),
+        )
+    }
+
     /// 获取分片上传服务器
     ///https://pan.baidu.com/union/doc/Mlvw5hfnr
     pub(crate) fn get_upload_server(
