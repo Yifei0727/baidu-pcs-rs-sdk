@@ -61,6 +61,10 @@ pub struct UploadArgs {
     /// 默认 false
     #[arg(short = 'K', default_value = "false", action = ArgAction::SetTrue)]
     pub include_prefix: bool,
+
+    /// 上传完成后是否删除本地源文件
+    #[arg(long = "remove-source", action = ArgAction::SetTrue)]
+    pub remove_source: bool,
 }
 
 /// 下载命令参数

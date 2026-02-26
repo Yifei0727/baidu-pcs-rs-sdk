@@ -2,11 +2,15 @@ use hickory_resolver::config::{
     NameServerConfig, NameServerConfigGroup, Protocol, ResolverConfig, ResolverOpts,
 };
 use hickory_resolver::name_server::TokioConnectionProvider;
-use hickory_resolver::AsyncResolver;
-use log::debug;
+use hickory_resolver::AsyncResolver as HickoryAsyncResolver;
+use reqwest::dns::{Addrs, Name, Resolve};
+use reqwest::ClientBuilder;
+use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
+use std::pin::Pin;
+use std::sync::Arc;
 
-fn parse_dns_servers(dns: &str) -> Vec<SocketAddr> {
+pub(crate) fn parse_dns_servers(dns: &str) -> Vec<SocketAddr> {
     dns.split(',')
         .filter_map(|s| {
             let s = s.trim();
@@ -24,65 +28,54 @@ fn parse_dns_servers(dns: &str) -> Vec<SocketAddr> {
         .collect()
 }
 
-async fn resolve_hosts_with_servers(
-    servers: &[SocketAddr],
-    hosts: &[&str],
-) -> Vec<(String, Vec<IpAddr>)> {
-    let mut group = NameServerConfigGroup::with_capacity(servers.len());
-    for s in servers {
-        group.push(NameServerConfig::new(*s, Protocol::Udp));
-        // Also add TCP as fallback
-        group.push(NameServerConfig::new(*s, Protocol::Tcp));
-    }
-    // No system config, only specified servers
-    let cfg = ResolverConfig::from_parts(None, vec![], group);
-    let opts = ResolverOpts::default();
-
-    // hickory-resolver 0.24: `new` returns the resolver directly
-    let resolver = AsyncResolver::new(cfg, opts, TokioConnectionProvider::default());
-
-    let mut results = Vec::with_capacity(hosts.len());
-    for &h in hosts {
-        match resolver.lookup_ip(h).await {
-            Ok(lookup) => {
-                let ips: Vec<IpAddr> = lookup.iter().collect();
-                if !ips.is_empty() {
-                    debug!("DNS {} -> {:?}", h, ips);
-                    results.push((h.to_string(), ips));
-                }
-            }
-            Err(e) => {
-                debug!("DNS lookup failed for {}: {}", h, e);
-            }
-        }
-    }
-    results
+struct HickoryReqwestResolver {
+    inner: HickoryAsyncResolver<TokioConnectionProvider>,
 }
 
-pub fn apply_custom_dns(
-    mut builder: reqwest::ClientBuilder,
+impl Resolve for HickoryReqwestResolver {
+    fn resolve(
+        &self,
+        name: Name,
+    ) -> Pin<Box<dyn Future<Output = Result<Addrs, Box<dyn std::error::Error + Send + Sync>>> + Send>> {
+        let host = name.as_str().to_string();
+        let inner = self.inner.clone();
+        Box::pin(async move {
+            let resp = inner.lookup_ip(host.as_str()).await?;
+            let addrs_vec: Vec<SocketAddr> = resp.iter().map(|ip| SocketAddr::new(ip, 0)).collect();
+            let addrs: Addrs = Box::new(addrs_vec.into_iter());
+            Ok(addrs)
+        })
+    }
+}
+
+/// If `dns` is provided, build a hickory AsyncResolver with the specified name servers
+/// and inject it into the reqwest client so that all hostnames are resolved via these servers.
+pub(crate) fn use_custom_dns_if_present(
+    client_builder: ClientBuilder,
     dns: Option<&str>,
-    hosts: &[&str],
-) -> reqwest::ClientBuilder {
-    let Some(dns) = dns else {
-        return builder;
+) -> ClientBuilder {
+    let Some(hosts_str) = dns else {
+        return client_builder;
     };
-    let servers = parse_dns_servers(dns);
+
+    let servers = parse_dns_servers(hosts_str);
     if servers.is_empty() {
-        return builder;
+        return client_builder;
     }
-    // resolve in a temporary runtime if no current
-    let rt = tokio::runtime::Runtime::new().expect("create temp tokio runtime for DNS");
-    let resolved = rt.block_on(resolve_hosts_with_servers(&servers, hosts));
-    drop(rt);
-    for (host, ips) in resolved {
-        for ip in ips {
-            // reqwest::ClientBuilder::resolve expects a SocketAddr; map common HTTP/HTTPS ports
-            builder = builder.resolve(&host, SocketAddr::new(ip, 80));
-            builder = builder.resolve(&host, SocketAddr::new(ip, 443));
-        }
+
+    let mut group = NameServerConfigGroup::with_capacity(servers.len());
+    for addr in servers {
+        group.push(NameServerConfig::new(addr, Protocol::Udp));
+        group.push(NameServerConfig::new(addr, Protocol::Tcp));
     }
-    builder
+    let resolver_cfg = ResolverConfig::from_parts(None, vec![], group);
+    let resolver_opts = ResolverOpts::default();
+
+    // Build an AsyncResolver that uses the current Tokio runtime
+    let inner = HickoryAsyncResolver::new(resolver_cfg, resolver_opts, TokioConnectionProvider::default());
+
+    let resolver = HickoryReqwestResolver { inner };
+    client_builder.dns_resolver(Arc::new(resolver))
 }
 
 #[cfg(test)]

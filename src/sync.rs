@@ -97,6 +97,7 @@ pub(crate) fn run_upload_task(args: &UploadArgs, config: &Config, client: &Baidu
     } else {
         config.local_pan.include_prefix.unwrap_or(false)
     };
+    let remove_source = args.remove_source;
     task_scheduler(
         local_root.as_str(),
         remote_root.as_str(),
@@ -126,6 +127,14 @@ pub(crate) fn run_upload_task(args: &UploadArgs, config: &Config, client: &Baidu
             match result {
                 Ok(result) => {
                     pb.finish_with_message("上传完成");
+                    if remove_source {
+                        if let Err(e) = fs::remove_file(&local) {
+                            error!("删除本地文件失败: {} - {}", local, e);
+                            eprintln!("警告: 上传成功但删除本地文件失败: {}", local);
+                        } else {
+                            info!("已删除本地文件: {}", local);
+                        }
+                    }
                     Ok(result)
                 }
                 Err(error) => {
