@@ -40,6 +40,7 @@ pub mod baidu_pcs_sdk {
         errno: i32,
         /// 有关该错误的描述。
         #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(alias = "show_msg")]
         #[serde(alias = "error_msg")]
         #[serde(alias = "errmsg")]
         err_msg: Option<String>,
@@ -351,6 +352,72 @@ pub mod baidu_pcs_sdk {
             Value::Number(n) => Ok(Some(n.to_string())),
             _ => Ok(None),
         }
+    }
+
+    /// 分享提取码验证响应
+    #[derive(Serialize, Deserialize, Debug, Getters)]
+    #[getset(get = "pub")]
+    pub struct ShareVerifyResult {
+        data: ShareVerifyData,
+    }
+    #[derive(Serialize, Deserialize, Debug, Getters, Clone)]
+    #[getset(get = "pub")]
+    pub struct ShareVerifyData {
+        /// 加密后的提取码，后续分享操作需携带
+        spwd: String,
+    }
+
+    /// 分享文件列表响应
+    #[derive(Serialize, Deserialize, Debug, Getters)]
+    #[getset(get = "pub")]
+    pub struct ShareFileListResult {
+        data: ShareFileListData,
+    }
+    #[derive(Serialize, Deserialize, Debug, Getters, Clone)]
+    #[getset(get = "pub")]
+    pub struct ShareFileListData {
+        /// 文件总数
+        #[serde(default)]
+        count: u64,
+        /// 文件信息列表
+        list: Vec<ShareFileInfo>,
+    }
+    #[derive(Serialize, Deserialize, Debug, Getters, Clone)]
+    #[getset(get = "pub")]
+    pub struct ShareFileInfo {
+        /// 文件类型，1 视频、2 音频、3 图片、4 文档、5 应用、6 其他、7 种子
+        category: i32,
+        /// 文件在云端的唯一标识
+        #[serde(deserialize_with = "from_str_or_int", default)]
+        fsid: Option<String>,
+        /// 是否是目录，0为否，1为是
+        #[serde(alias = "isdir", default)]
+        is_dir: i32,
+        /// 文件名
+        server_filename: String,
+        /// 完整路径
+        #[serde(default)]
+        path: String,
+        /// 文件大小
+        #[serde(default)]
+        size: u64,
+        /// 云端哈希
+        #[serde(default)]
+        md5: Option<String>,
+    }
+
+    /// 分享文件下载响应
+    #[derive(Serialize, Deserialize, Debug, Getters)]
+    #[getset(get = "pub")]
+    pub struct ShareDownloadResult {
+        data: ShareDownloadData,
+    }
+    #[derive(Serialize, Deserialize, Debug, Getters, Clone)]
+    #[getset(get = "pub")]
+    pub struct ShareDownloadData {
+        /// 下载地址
+        #[serde(default)]
+        dlink: Option<String>,
     }
 
     impl PcsUserInfo {

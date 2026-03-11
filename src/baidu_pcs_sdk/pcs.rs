@@ -3,6 +3,7 @@ use md5::{Digest, Md5};
 use reqwest::{Body, Client};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use sha2::Sha256;
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -14,7 +15,8 @@ use crate::baidu_pcs_sdk::pcs::HttpMethod::{Get, Post};
 pub use crate::baidu_pcs_sdk::{
     AppError, AppErrorType, BaiduPcsApp, PcsApiError, PcsCreateFolderResult, PcsDiskQuota,
     PcsFileListResult, PcsFileMetaResult, PcsFileSearchResult, PcsFileSlicePrepareResult,
-    PcsFileUploadResult, PcsUserInfo, UploadServerResult,
+    PcsFileUploadResult, PcsUserInfo, ShareDownloadResult, ShareFileListResult, ShareVerifyResult,
+    UploadServerResult,
 };
 
 use crate::dns;
@@ -1211,6 +1213,139 @@ impl BaiduPcsClient {
             from_apaas: None,
         };
         self.request(Get, PATH, params, None::<()>)
+    }
+
+    /// 分享提取码验证
+    /// 参见[官方文档](https://pan.baidu.com/union/doc/Rlaaolmfw)
+    /// 验证分享提取码是否正确，返回加密后的 spwd 供后续接口使用
+    pub fn share_verify(
+        &self,
+        short_url: &str,
+        pwd: Option<&str>,
+    ) -> Result<ShareVerifyResult, AppError> {
+        const PATH: &str = "/apaas/1.0/share/verify";
+        #[derive(Serialize)]
+        struct Params<'a> {
+            product: &'a str,
+            appid: &'a str,
+            short_url: &'a str,
+        }
+        #[derive(Serialize)]
+        struct Body<'a> {
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pwd: Option<&'a str>,
+        }
+        self.request(
+            Post,
+            PATH,
+            Params {
+                product: "netdisk",
+                appid: "250529",
+                short_url,
+            },
+            Some(Body { pwd }),
+        )
+    }
+
+    /// 查询分享文件列表
+    /// 参见[官方文档](https://pan.baidu.com/union/VIPdocs/Dlki1phag)
+    /// 获取分享链接中的文件/目录列表
+    pub fn share_list(
+        &self,
+        short_url: &str,
+        spwd: &str,
+        dir: Option<&str>,
+        page: Option<u32>,
+        page_size: Option<u32>,
+    ) -> Result<ShareFileListResult, AppError> {
+        const PATH: &str = "/apaas/1.0/share/list";
+        #[derive(Serialize)]
+        struct Params<'a> {
+            product: &'a str,
+            appid: &'a str,
+        }
+        #[derive(Serialize)]
+        struct Body<'a> {
+            short_url: &'a str,
+            spwd: &'a str,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            dir: Option<&'a str>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            page: Option<u32>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            page_size: Option<u32>,
+        }
+        self.request(
+            Post,
+            PATH,
+            Params {
+                product: "netdisk",
+                appid: self.pcs_app.app_key,
+            },
+            Some(Body {
+                short_url,
+                spwd,
+                dir,
+                page,
+                page_size,
+            }),
+        )
+    }
+
+    /// 生成分享下载签名
+    /// 签名算法: SHA256( {appid} + '-' + {short_url} + '-' + JOIN({fsid_list}, ',') + '-' + {timestamp} )
+    fn share_sign(&self, short_url: &str, fsid_list: &[String], timestamp: u64) -> String {
+        let fsids_joined = fsid_list.join(",");
+        let plain = format!(
+            "{}-{}-{}-{}",
+            self.pcs_app.app_key, short_url, fsids_joined, timestamp
+        );
+        let mut hasher = Sha256::new();
+        sha2::Digest::update(&mut hasher, plain.as_bytes());
+        hex::encode(hasher.finalize())
+    }
+
+    /// 获取分享下载地址
+    /// 参见[官方文档](https://pan.baidu.com/union/doc/Kltglxghl)
+    /// 获取分享文件的下载地址（dlink）
+    pub fn share_download(
+        &self,
+        short_url: &str,
+        spwd: &str,
+        fsid_list: &[String],
+    ) -> Result<ShareDownloadResult, AppError> {
+        const PATH: &str = "/apaas/1.0/share/download";
+        let timestamp = chrono::Utc::now().timestamp() as u64;
+        let sign = self.share_sign(short_url, fsid_list, timestamp);
+        #[derive(Serialize)]
+        struct Params<'a> {
+            appid: &'a str,
+            product: &'a str,
+            short_url: &'a str,
+            sign: &'a str,
+        }
+        #[derive(Serialize)]
+        struct Body<'a> {
+            spwd: &'a str,
+            fsid_list: &'a str,
+            timestamp: u64,
+        }
+        let fsid_json = serde_json::to_string(fsid_list)?;
+        self.request(
+            Post,
+            PATH,
+            Params {
+                appid: self.pcs_app.app_key,
+                product: "netdisk",
+                short_url,
+                sign: sign.as_str(),
+            },
+            Some(Body {
+                spwd,
+                fsid_list: fsid_json.as_str(),
+                timestamp,
+            }),
+        )
     }
 
     /// 下载文件

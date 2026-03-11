@@ -11,10 +11,6 @@ pub struct CommandLineArgs {
     #[arg(short, long, default_value = None)]
     pub config: Option<String>,
 
-    /// 是否开启 debug 日志
-    #[arg(long, action = ArgAction::SetTrue)]
-    pub debug: bool,
-
     /// 指定用于解析域名的 DNS 服务器地址（支持逗号分隔多个，格式如 8.8.8.8 或 8.8.8.8:53）
     #[arg(long, default_value = None)]
     pub dns: Option<String>,
@@ -48,6 +44,11 @@ pub enum Commands {
     /// 显示磁盘配额
     #[command(alias = "df", alias = "du")]
     Quota(DiskQuotaArgs),
+    /// 下载分享链接文件到本地
+    Wget(WgetArgs),
+    /// 显示版本信息
+    #[command(alias = "ver")]
+    Version,
 }
 
 /// ls <remote> [-r]
@@ -142,4 +143,17 @@ pub struct DiskQuotaArgs {
     pub mb: bool,
     #[arg(short = 'g', long="gb", conflicts_with_all = &["human", "kb", "mb"])]
     pub gb: bool,
+}
+
+/// wget <share_url> [--password <pwd>] [--output <dir>]
+#[derive(Args)]
+pub struct WgetArgs {
+    /// 百度网盘分享链接，如 https://pan.baidu.com/s/xxxxx
+    pub share_url: String,
+    /// 分享提取码（如有）
+    #[arg(short = 'p', long = "password")]
+    pub password: Option<String>,
+    /// 本地保存目录（默认当前目录）
+    #[arg(short = 'o', long = "output")]
+    pub output: Option<String>,
 }

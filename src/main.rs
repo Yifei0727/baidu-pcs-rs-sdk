@@ -38,9 +38,36 @@ fn main() {
     let pid = std::process::id();
     let log_file_name = format!("{}-{}.log", now.format("%Y%m%dT%H%M%S"), pid);
     let log_file_path = log_dir.join(log_file_name);
-    let log_level = LevelFilter::Info;
+    // 初始化日志级别：默认根据编译模式决定（debug 构建为 Debug），命令行 --debug 或 -v 系列参数可覆盖
+    let mut log_level = if cfg!(debug_assertions) {
+        LevelFilter::Debug
+    } else {
+        LevelFilter::Info
+    };
+    // 支持全局 -v -vv -vvv （组合形式或重复出现），优先级高于编译模式
+    let v_count: usize = env::args()
+        .skip(1)
+        .filter(|a| a.starts_with('-') && a.chars().skip(1).all(|c| c == 'v'))
+        .map(|a| a.chars().skip(1).filter(|&c| c == 'v').count())
+        .sum();
+    if v_count > 0 {
+        log_level = match v_count {
+            1 => LevelFilter::Info,
+            2 => LevelFilter::Debug,
+            _ => LevelFilter::Trace, // -vvv 及以上视为最详尽的 Trace
+        };
+    }
     let log_file = File::create(&log_file_path).expect("无法创建日志文件");
     WriteLogger::init(log_level, LogConfig::default(), log_file).expect("日志初始化失败");
+
+    // version 子命令无需配置和认证，直接输出版本信息
+    if matches!(cli.command, Some(Commands::Version)) {
+        println!(
+            "{}",
+            env!("CARGO_PKG_VERSION")
+        );
+        return;
+    }
 
     // 检查配置文件是否存在，如果不存在说明是第一次使用， 提示用户
     let path = get_config_file_path(cli.config.as_ref());
@@ -159,6 +186,15 @@ fn main() {
             println!("备份: {} -> {}", args.local, args.remote);
             sync::run_backup_task(args, &client);
         }
+        Some(Commands::Wget(args)) => {
+            println!(
+                "分享下载: {} -> {}",
+                args.share_url,
+                args.output.as_deref().unwrap_or(".")
+            );
+            sync::run_wget_task(args, &client);
+        }
+        Some(Commands::Version) => unreachable!("已在前面提前处理"),
         Some(Commands::Quota(args)) => match client.get_user_quota(true, true) {
             Ok(quota) => {
                 let total = *quota.total();

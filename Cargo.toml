@@ -42,3 +42,5 @@ directories = "6.0.0"
 byte-unit = "5.1.6"
 # Hickory resolver to build a custom DNS client with specified nameservers
 hickory-resolver = { version = "0.24", default-features = false, features = ["tokio-runtime"] }
+# SHA-256 for share download signature
+sha2 = "0.10"

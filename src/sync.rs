@@ -1,7 +1,7 @@
-use crate::cli::{BackupArgs, RxArgs, TxArgs};
+use crate::cli::{BackupArgs, RxArgs, TxArgs, WgetArgs};
 use crate::config::Config;
 use baidu_pcs_rs_sdk::baidu_pcs_sdk::pcs::{BaiduPcsClient, PcsUploadPolicy};
-use baidu_pcs_rs_sdk::baidu_pcs_sdk::{PcsFileItem, PcsFileUploadResult};
+use baidu_pcs_rs_sdk::baidu_pcs_sdk::{PcsFileItem, PcsFileUploadResult, ShareFileInfo};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{error, info};
 use std::collections::HashSet;
@@ -355,6 +355,226 @@ pub(crate) fn run_backup_task(args: &BackupArgs, client: &BaiduPcsClient) {
         uploaded,
         skipped
     );
+}
+
+/// 从百度网盘分享链接中提取 short_url 和提取码
+/// 支持格式：
+///   https://pan.baidu.com/s/xxxxx?pwd=1234
+///   https://pan.baidu.com/s/xxxxx
+///   直接输入 xxxxx 短链部分
+/// 返回 (short_url, Option<提取码>)
+fn extract_short_url(share_url: &str) -> (String, Option<String>) {
+    // 提取 pwd 查询参数
+    let pwd = share_url
+        .find("pwd=")
+        .map(|pos| {
+            let start = pos + 4;
+            let end = share_url[start..]
+                .find('&')
+                .map(|i| start + i)
+                .unwrap_or(share_url.len());
+            share_url[start..end].to_string()
+        })
+        .filter(|s| !s.is_empty());
+
+    // 提取 short_url 部分
+    let url = share_url.split('?').next().unwrap_or(share_url);
+    let short = if let Some(pos) = url.rfind("/s/") {
+        url[pos + 3..].to_string()
+    } else {
+        url.to_string()
+    };
+    (short, pwd)
+}
+
+/// 递归获取分享目录下所有文件
+fn list_share_files_recursive(
+    client: &BaiduPcsClient,
+    short_url: &str,
+    spwd: &str,
+    dir: &str,
+) -> Vec<(ShareFileInfo, String)> {
+    let mut result = Vec::new();
+    let mut page = 1u32;
+    loop {
+        let list_res = client.share_list(short_url, spwd, Some(dir), Some(page), Some(100));
+        match list_res {
+            Ok(list) => {
+                if list.data().list().is_empty() {
+                    break;
+                }
+                for item in list.data().list() {
+                    if *item.is_dir() == 1 {
+                        let sub_dir = item.path();
+                        let children =
+                            list_share_files_recursive(client, short_url, spwd, sub_dir);
+                        result.extend(children);
+                    } else {
+                        result.push((item.clone(), dir.to_string()));
+                    }
+                }
+                if (list.data().list().len() as u64) < 100 {
+                    break;
+                }
+                page += 1;
+            }
+            Err(e) => {
+                error!("获取分享文件列表失败: {}", e);
+                break;
+            }
+        }
+    }
+    result
+}
+
+/// 下载分享链接文件到本地
+pub(crate) fn run_wget_task(args: &WgetArgs, client: &BaiduPcsClient) {
+    let (short_url, url_pwd) = extract_short_url(&args.share_url);
+    let output_dir = args.output.as_deref().unwrap_or(".");
+    // -p 参数优先，其次从链接中提取的 pwd
+    let password = args.password.as_deref().or(url_pwd.as_deref());
+
+    // 1. 验证提取码，获取 spwd
+    println!("正在验证分享链接...");
+    let verify_res = client.share_verify(&short_url, password);
+    let spwd = match verify_res {
+        Ok(res) => res.data().spwd().clone(),
+        Err(e) => {
+            eprintln!("验证分享提取码失败: {}", e);
+            return;
+        }
+    };
+    info!("分享提取码验证成功");
+
+    // 2. 获取分享文件列表（根目录）
+    println!("正在获取分享文件列表...");
+    let files = list_share_files_recursive(client, &short_url, &spwd, "/");
+    if files.is_empty() {
+        // 尝试根目录文件列表（有些分享根目录就是文件）
+        let root_res = client.share_list(&short_url, &spwd, None, None, None);
+        match root_res {
+            Ok(list) => {
+                if list.data().list().is_empty() {
+                    eprintln!("分享链接中没有找到文件");
+                    return;
+                }
+                // 处理根目录中的文件
+                download_share_files(
+                    client,
+                    &short_url,
+                    &spwd,
+                    &list.data().list().iter().map(|f| (f.clone(), "/".to_string())).collect::<Vec<_>>(),
+                    output_dir,
+                );
+            }
+            Err(e) => {
+                eprintln!("获取分享文件列表失败: {}", e);
+            }
+        }
+        return;
+    }
+
+    println!("共找到 {} 个文件，开始下载...", files.len());
+    download_share_files(client, &short_url, &spwd, &files, output_dir);
+}
+
+/// 下载分享文件列表中的每个文件
+fn download_share_files(
+    client: &BaiduPcsClient,
+    short_url: &str,
+    spwd: &str,
+    files: &[(ShareFileInfo, String)],
+    output_dir: &str,
+) {
+    let mut success = 0usize;
+    let mut failed = 0usize;
+
+    for (file, parent_dir) in files {
+        if *file.is_dir() == 1 {
+            continue;
+        }
+
+        let fsid = match file.fsid() {
+            Some(id) => id.clone(),
+            None => {
+                error!("跳过无 fsid 的文件: {}", file.server_filename());
+                failed += 1;
+                continue;
+            }
+        };
+
+        // 计算本地保存路径，保持目录结构
+        let relative_path = if parent_dir == "/" {
+            file.server_filename().to_string()
+        } else {
+            // 去掉开头的 / 保持相对路径
+            let dir_part = parent_dir.trim_start_matches('/');
+            format!("{}/{}", dir_part, file.server_filename())
+        };
+        let local_path = PathBuf::from(output_dir).join(&relative_path);
+
+        // 确保父目录存在
+        if let Some(parent) = local_path.parent() {
+            if !parent.exists() {
+                if let Err(e) = fs::create_dir_all(parent) {
+                    error!("创建目录失败: {} - {}", parent.display(), e);
+                    failed += 1;
+                    continue;
+                }
+            }
+        }
+
+        // 获取下载链接
+        let download_res = client.share_download(short_url, spwd, &[fsid.clone()]);
+        match download_res {
+            Ok(res) => {
+                if let Some(dlink) = res.data().dlink() {
+                    let pb = ProgressBar::no_length();
+                    pb.set_style(
+                        ProgressStyle::with_template(
+                            "{spinner:.green} [{elapsed_precise}] [{bar:72.cyan/blue}] {bytes}/{total_bytes} ({percent}%) {bytes_per_sec} ETA {eta_precise} | {msg}",
+                        )
+                        .unwrap()
+                        .progress_chars("=>-"),
+                    );
+                    pb.set_message(format!("下载 {}", relative_path));
+
+                    let pbm = pb.clone();
+                    let result = client.download(
+                        dlink,
+                        local_path.to_str().unwrap_or("."),
+                        Some(move |downloaded, total| {
+                            pbm.set_length(total);
+                            pbm.set_position(downloaded);
+                        }),
+                    );
+                    match result {
+                        Ok(_) => {
+                            pb.finish_with_message(format!("下载完成: {}", relative_path));
+                            success += 1;
+                        }
+                        Err(e) => {
+                            pb.abandon_with_message(format!("下载失败: {}", relative_path));
+                            error!("下载文件失败: {} - {}", relative_path, e);
+                            failed += 1;
+                        }
+                    }
+                } else {
+                    eprintln!("未获取到文件 {} 的下载地址", file.server_filename());
+                    failed += 1;
+                }
+            }
+            Err(e) => {
+                eprintln!(
+                    "获取文件 {} 的下载地址失败: {}",
+                    file.server_filename(),
+                    e
+                );
+                failed += 1;
+            }
+        }
+    }
+    println!("下载完成: 成功 {}, 失败 {}", success, failed);
 }
 
 #[cfg(test)]
