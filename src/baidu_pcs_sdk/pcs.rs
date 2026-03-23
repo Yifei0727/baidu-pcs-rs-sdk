@@ -1431,11 +1431,11 @@ impl BaiduPcsClient {
                 return Err(AppError::new(AppErrorType::Network, format!("http error {}: {}", resp.status(), txt).as_str(), None));
             }
             let bytes = resp.bytes().await.map_err(|e| AppError::new(AppErrorType::Network, e.to_string().as_str(), None))?;
-            Ok::<bytes::Bytes, AppError>(bytes)
+            Ok::<Vec<u8>, AppError>(bytes.to_vec())
         };
 
         let bytes = self.runtime.block_on(fut)?;
-        Ok(bytes.to_vec())
+        Ok(bytes)
     }
 
     /// 通过文件路径反向查询百度网盘云端的文件ID
