@@ -1426,9 +1426,10 @@ impl BaiduPcsClient {
                 .send()
                 .await
                 .map_err(|e| AppError::new(AppErrorType::Network, e.to_string().as_str(), None))?;
-            if !resp.status().is_success() && resp.status() != reqwest::StatusCode::PARTIAL_CONTENT {
+            let status = resp.status();
+            if !status.is_success() && status != reqwest::StatusCode::PARTIAL_CONTENT {
                 let txt = resp.text().await.unwrap_or_default();
-                return Err(AppError::new(AppErrorType::Network, format!("http error {}: {}", resp.status(), txt).as_str(), None));
+                return Err(AppError::new(AppErrorType::Network, format!("http error {}: {}", status, txt).as_str(), None));
             }
             let bytes = resp.bytes().await.map_err(|e| AppError::new(AppErrorType::Network, e.to_string().as_str(), None))?;
             Ok::<Vec<u8>, AppError>(bytes.to_vec())
