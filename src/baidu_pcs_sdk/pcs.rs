@@ -1401,6 +1401,43 @@ impl BaiduPcsClient {
             .map_err(|e| AppError::new(AppErrorType::Network, e.to_string().as_str(), None))
     }
 
+    /// Download a byte range of the remote file identified by path. Returns the bytes read.
+    pub fn download_range_by_path(&self, path: &str, offset: u64, len: usize) -> Result<Vec<u8>, AppError> {
+        // Resolve fs_id by path
+        let fs_id = self.get_fs_id_by_path(path)?;
+        // Get file info (including dlink)
+        let meta = self.get_file_info(true, vec![fs_id])?;
+        if meta.list.is_empty() {
+            return Err(AppError::new(AppErrorType::Unknown, format!("no metadata for {}", path).as_str(), None));
+        }
+        let file_info = &meta.list[0];
+        let dlink = match &file_info.dlink {
+            Some(d) => d.clone(),
+            None => return Err(AppError::new(AppErrorType::Unknown, "no download link available", None)),
+        };
+        let url = format!("{}&access_token={}", dlink, self.access_token.as_str());
+        let range_header = format!("bytes={}-{}", offset, offset + (len as u64).saturating_sub(1));
+
+        let fut = async {
+            let resp = self
+                .client
+                .get(url.as_str())
+                .header(reqwest::header::RANGE, range_header)
+                .send()
+                .await
+                .map_err(|e| AppError::new(AppErrorType::Network, e.to_string().as_str(), None))?;
+            if !resp.status().is_success() && resp.status() != reqwest::StatusCode::PARTIAL_CONTENT {
+                let txt = resp.text().await.unwrap_or_default();
+                return Err(AppError::new(AppErrorType::Network, format!("http error {}: {}", resp.status(), txt).as_str(), None));
+            }
+            let bytes = resp.bytes().await.map_err(|e| AppError::new(AppErrorType::Network, e.to_string().as_str(), None))?;
+            Ok::<bytes::Bytes, AppError>(bytes)
+        };
+
+        let bytes = self.runtime.block_on(fut)?;
+        Ok(bytes.to_vec())
+    }
+
     /// 通过文件路径反向查询百度网盘云端的文件ID
     /// # Arguments
     /// * `path` - 文件路径
