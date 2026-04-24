@@ -60,10 +60,15 @@ tag 发布时，所有构件都会自动上传到 GitHub Releases。
 
 ### OpenSSL 编译错误
 
-如果遇到 `openssl-sys` 编译错误，通常是因为：
+如果遇到 `openssl-sys` 编译错误（适用于所有 cross 编译目标），通常是因为：
 
-1. Cross 容器中缺少 OpenSSL 开发库 - 已在 `Cross.toml` 中配置自动安装
-2. 环境变量未正确设置 - workflow 中已自动配置 `OPENSSL_DIR` 和 `OPENSSL_STATIC`
+1. Cross 容器中缺少 OpenSSL 开发库
+   - GNU 目标：已在 `Cross.toml` 中配置安装 `libssl-dev:$CROSS_DEB_ARCH`
+   - musl 目标：已在 `Cross.toml` 中配置安装 `libssl-dev`
+   
+2. 环境变量未正确设置
+   - 已在 `Cross.toml` 中配置环境变量透传（`OPENSSL_DIR`, `OPENSSL_STATIC`）
+   - 已在 workflow 中为所有 cross 编译自动配置这些变量
 
 ### 构建超时
 
