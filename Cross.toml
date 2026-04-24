@@ -9,15 +9,15 @@ passthrough = [
 [target.aarch64-unknown-linux-gnu]
 pre-build = [
     "dpkg --add-architecture $CROSS_DEB_ARCH",
-    "apt-get update && apt-get install -y pkg-config libssl-dev:$CROSS_DEB_ARCH libssl1.1:$CROSS_DEB_ARCH"
+    "apt-get update && apt-get install -y pkg-config libssl-dev:$CROSS_DEB_ARCH || apt-get install -y pkg-config libssl-dev:$CROSS_DEB_ARCH"
 ]
 
 [target.x86_64-unknown-linux-musl]
 pre-build = [
-    "apt-get update && apt-get install -y pkg-config libssl-dev libssl1.1 || apt-get install -y pkg-config libssl-dev"
+    "apt-get update && apt-get install -y pkg-config libssl-dev || true"
 ]
 
 [target.aarch64-unknown-linux-musl]
 pre-build = [
-    "apt-get update && apt-get install -y pkg-config libssl-dev libssl1.1 || apt-get install -y pkg-config libssl-dev"
+    "apt-get update && apt-get install -y pkg-config libssl-dev || true"
 ]
