@@ -46,6 +46,9 @@ pub enum Commands {
     Quota(DiskQuotaArgs),
     /// 下载分享链接文件到本地
     Wget(WgetArgs),
+    /// 创建远程目录
+    #[command(alias = "md")]
+    Mkdir(MkdirArgs),
     /// 显示版本信息
     #[command(alias = "ver")]
     Version,
@@ -156,4 +159,15 @@ pub struct WgetArgs {
     /// 本地保存目录（默认当前目录）
     #[arg(short = 'o', long = "output")]
     pub output: Option<String>,
+}
+
+/// mkdir <remote>... [-p]
+#[derive(Args)]
+pub struct MkdirArgs {
+    /// 远程路径（支持多个）
+    #[arg(required = true)]
+    pub remote: Vec<String>,
+    /// 如果父目录不存在，则创建父目录
+    #[arg(short = 'p', long = "parents", action = ArgAction::SetTrue)]
+    pub parents: bool,
 }

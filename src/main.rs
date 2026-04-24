@@ -194,6 +194,27 @@ fn main() {
             );
             sync::run_wget_task(args, &client);
         }
+        Some(Commands::Mkdir(args)) => {
+            for remote_path in &args.remote {
+                println!("创建目录: {}", remote_path);
+                match client.create_folder(remote_path) {
+                    Ok(res) => {
+                        println!("✓ 创建成功: {}", remote_path);
+                        println!("  路径: {}", res.path());
+                    }
+                    Err(e) => {
+                        let err_msg = e.to_string();
+                        if args.parents && err_msg.contains("父目录不存在") || err_msg.contains("110") {
+                            eprintln!("✗ 创建失败 (父目录不存在): {}", remote_path);
+                        } else if err_msg.contains("文件已存在") || err_msg.contains("已存在") || err_msg.contains("112") {
+                            println!("⊘ 目录已存在: {}", remote_path);
+                        } else {
+                            eprintln!("✗ 创建失败: {}", e);
+                        }
+                    }
+                }
+            }
+        }
         Some(Commands::Version) => unreachable!("已在前面提前处理"),
         Some(Commands::Quota(args)) => match client.get_user_quota(true, true) {
             Ok(quota) => {

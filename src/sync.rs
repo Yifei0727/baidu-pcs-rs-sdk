@@ -379,11 +379,14 @@ fn extract_short_url(share_url: &str) -> (String, Option<String>) {
 
     // 提取 short_url 部分
     let url = share_url.split('?').next().unwrap_or(share_url);
-    let short = if let Some(pos) = url.rfind("/s/") {
+    let mut short = if let Some(pos) = url.rfind("/s/") {
         url[pos + 3..].to_string()
     } else {
         url.to_string()
     };
+    if short.len() == 23 && short.starts_with("1") {
+        short = short[1..].to_string();
+    }
     (short, pwd)
 }
 
