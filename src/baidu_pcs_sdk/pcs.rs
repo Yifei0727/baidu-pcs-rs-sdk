@@ -254,13 +254,13 @@ impl BaiduPcsClient {
         R: DeserializeOwned,
     {
         debug!(
-            "_request {} {} {} {}",
-            url,
-            serde_json::to_string(&params).unwrap_or_default(),
+            "_request {} {}?{} {}",
             match m {
                 Get => "GET",
                 Post => "POST",
             },
+            url,
+            serde_json::to_string(&params).unwrap_or_default(),
             if payload.is_some() {
                 "with payload"
             } else {
@@ -1240,7 +1240,7 @@ impl BaiduPcsClient {
             PATH,
             Params {
                 product: "netdisk",
-                appid: "250529",
+                appid: "45051599",
                 short_url,
             },
             Some(Body { pwd }),
@@ -1280,7 +1280,7 @@ impl BaiduPcsClient {
             PATH,
             Params {
                 product: "netdisk",
-                appid: self.pcs_app.app_key,
+                appid: "4501599",
             },
             Some(Body {
                 short_url,
@@ -1335,7 +1335,7 @@ impl BaiduPcsClient {
             Post,
             PATH,
             Params {
-                appid: self.pcs_app.app_key,
+                appid: "45051599",
                 product: "netdisk",
                 short_url,
                 sign: sign.as_str(),
