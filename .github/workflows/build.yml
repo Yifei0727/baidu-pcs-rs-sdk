@@ -76,19 +76,6 @@ jobs:
         shell: bash
         run: |
           if [ "${{ matrix.useCross }}" = "true" ]; then
-            # Configure OpenSSL for cross-compiled glibc targets
-            case "${{ matrix.target }}" in
-              x86_64-unknown-linux-gnu)
-                export OPENSSL_DIR=/usr/lib/x86_64-linux-gnu
-                ;;
-              aarch64-unknown-linux-gnu)
-                export OPENSSL_DIR=/usr/lib/aarch64-linux-gnu
-                ;;
-              *-musl)
-                # musl targets: OpenSSL is static-linked or system musl
-                export OPENSSL_STATIC=1
-                ;;
-            esac
             cross build --release --target ${{ matrix.target }}
           else
             cargo build --release --target ${{ matrix.target }}
