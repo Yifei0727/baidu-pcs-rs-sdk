@@ -256,11 +256,11 @@ impl BaiduPcsClient {
         debug!(
             "_request {} {} {} {}",
             url,
+            serde_json::to_string(&params).unwrap_or_default(),
             match m {
                 Get => "GET",
                 Post => "POST",
             },
-            serde_json::to_string(&params).unwrap_or_default(),
             if payload.is_some() {
                 "with payload"
             } else {
