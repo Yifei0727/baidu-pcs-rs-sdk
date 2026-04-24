@@ -76,6 +76,11 @@ jobs:
         shell: bash
         run: |
           if [ "${{ matrix.useCross }}" = "true" ]; then
+            # For musl targets, configure OpenSSL
+            if [[ "${{ matrix.target }}" == *"musl"* ]]; then
+              export OPENSSL_DIR=/usr/lib/x86_64-linux-gnu
+              export OPENSSL_STATIC=1
+            fi
             cross build --release --target ${{ matrix.target }}
           else
             cargo build --release --target ${{ matrix.target }}
