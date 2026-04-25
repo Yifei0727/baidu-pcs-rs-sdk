@@ -150,13 +150,13 @@ pub struct RxArgs {
     pub recursive: bool,
 }
 
-/// backup <local> <remote> [--daemon] [--rm]
+/// backup [local] [remote] [--daemon] [--rm]
 #[derive(Args)]
 pub struct BackupArgs {
-    /// 本地源目录/文件
-    pub local: String,
-    /// 远程目标目录
-    pub remote: String,
+    /// 本地源目录/文件（可选，未提供时从配置文件读取）
+    pub local: Option<String>,
+    /// 远程目标目录（可选，未提供时从配置文件读取）
+    pub remote: Option<String>,
     /// 守护模式：持续监控本地变更并自动备份
     #[arg(short = 'd', long = "daemon", action = ArgAction::SetTrue)]
     pub daemon: bool,

@@ -10,7 +10,7 @@ mod sync;
 
 use crate::auth::{device_auth_with_dns, first_app_use, renew_token};
 use crate::cli::{CommandLineArgs, Commands, CompletionArgs, SelfCommand};
-use crate::config::{config_load_or_init, get_config_file_path, save_or_update_config, Config};
+use crate::config::{config_load_or_init, get_config_file_path, save_or_update_config, BackupConfig, Config};
 use baidu_pcs_rs_sdk::baidu_pcs_sdk::pcs::BaiduPcsClient;
 use baidu_pcs_rs_sdk::baidu_pcs_sdk::BaiduPcsApp;
 use byte_unit::UnitType;
@@ -481,12 +481,63 @@ fn main() {
             }
         }
         Some(Commands::Backup(args)) => {
+            // 路径解析优先级：CLI 参数 → 配置文件 → 交互输入
+            let saved = config.backup.clone();
+
+            let local = args
+                .local
+                .clone()
+                .or_else(|| saved.as_ref().map(|b| b.local_path.clone()));
+            let remote = args
+                .remote
+                .clone()
+                .or_else(|| saved.as_ref().map(|b| b.remote_path.clone()));
+
+            // 如果任一路径缺失，进入交互输入并写回配置
+            let (local, remote) = match (local, remote) {
+                (Some(l), Some(r)) => (l, r),
+                (l, r) => {
+                    use std::io::{self, Write};
+                    println!("备份路径未配置，请输入以下信息（将保存到配置文件）：");
+                    let local = if let Some(v) = l {
+                        v
+                    } else {
+                        print!("  本地备份目录: ");
+                        io::stdout().flush().unwrap();
+                        let mut buf = String::new();
+                        io::stdin().read_line(&mut buf).unwrap();
+                        buf.trim().to_string()
+                    };
+                    let remote = if let Some(v) = r {
+                        v
+                    } else {
+                        print!("  远程备份目录: ");
+                        io::stdout().flush().unwrap();
+                        let mut buf = String::new();
+                        io::stdin().read_line(&mut buf).unwrap();
+                        buf.trim().to_string()
+                    };
+                    if local.is_empty() || remote.is_empty() {
+                        eprintln!("备份路径不能为空，操作已取消");
+                        return;
+                    }
+                    // 写回配置
+                    config.backup = Some(BackupConfig {
+                        local_path: local.clone(),
+                        remote_path: remote.clone(),
+                    });
+                    save_or_update_config(&mut config, cli.config.as_ref());
+                    println!("已保存备份路径到配置文件");
+                    (local, remote)
+                }
+            };
+
             if args.daemon {
-                println!("备份(守护模式): {} -> {}", args.local, args.remote);
+                println!("备份(守护模式): {} -> {}", local, remote);
             } else {
-                println!("备份: {} -> {}", args.local, args.remote);
+                println!("备份: {} -> {}", local, remote);
             }
-            sync::run_backup_task(args, &client);
+            sync::run_backup_task(args, &local, &remote, &client);
         }
         Some(Commands::Wget(args)) => {
             println!(

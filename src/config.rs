@@ -12,6 +12,17 @@ pub struct Config {
     pub local_pan: LocalConfig,
     /// 自定义 DNS 服务器，逗号分隔，例如："8.8.8.8,1.1.1.1"（可为空，空则使用系统默认）
     pub dns: Option<String>,
+    /// 备份任务配置（本地与远程路径）
+    pub backup: Option<BackupConfig>,
+}
+
+/// 备份任务路径配置
+#[derive(Deserialize, Serialize, Clone)]
+pub struct BackupConfig {
+    /// 本地备份源目录
+    pub local_path: String,
+    /// 远程备份目标目录
+    pub remote_path: String,
 }
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -109,6 +120,7 @@ pub fn config_load_or_init(
                 include_prefix: Some(false),
             },
             dns: dns.map(|s| s.to_string()),
+            backup: None,
         };
         save_or_update_config(&mut config, custom_config);
     }

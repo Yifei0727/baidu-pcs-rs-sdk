@@ -265,14 +265,19 @@ fn list_remote_files_recursive(client: &BaiduPcsClient, dir: &str) -> HashSet<St
 
 /// backup 模式：扫描本地文件，跳过远程已存在的，仅上传缺失的
 /// daemon 模式下持续监控，每隔一段时间重新扫描
-pub(crate) fn run_backup_task(args: &BackupArgs, client: &BaiduPcsClient) {
-    let local_root = &args.local;
-    let remote_root = &args.remote;
+pub(crate) fn run_backup_task(
+    args: &BackupArgs,
+    local_root: &str,
+    remote_root: &str,
+    client: &BaiduPcsClient,
+) {
     let remove_source = args.remove_source;
     let daemon = args.daemon;
+    let local_root = local_root.to_string();
+    let remote_root = remote_root.to_string();
 
     loop {
-        do_backup(local_root, remote_root, remove_source, client);
+        do_backup(&local_root, &remote_root, remove_source, client);
 
         if !daemon {
             break;
