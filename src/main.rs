@@ -25,6 +25,7 @@ pub(crate) const BAIDU_PCS_APP: BaiduPcsApp = BaiduPcsApp {
     app_name: env!("BAIDU_PCS_APP_NAME"),
     app_key: env!("BAIDU_PCS_APP_KEY"),
     app_secret: env!("BAIDU_PCS_APP_SECRET"),
+    app_id: option_env!("BAIDU_PCS_APP_ID"),
 };
 fn main() {
     let cli = CommandLineArgs::parse();
