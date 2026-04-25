@@ -129,7 +129,8 @@ fn get_file_block_list(
         slice_md5,
         block_list,
         ctime: file_meta
-            .created()?
+            .created()
+            .or_else(|_| file_meta.modified())?
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs() as i64,
