@@ -148,15 +148,18 @@ pub struct RxArgs {
     pub recursive: bool,
 }
 
-/// backup <local> <remote> [--remove-source]
+/// backup <local> <remote> [--daemon] [--rm]
 #[derive(Args)]
 pub struct BackupArgs {
     /// 本地源目录/文件
     pub local: String,
     /// 远程目标目录
     pub remote: String,
-    /// 上传完成后删除本地源文件
-    #[arg(long = "remove-source", action = ArgAction::SetTrue)]
+    /// 守护模式：持续监控本地变更并自动备份
+    #[arg(short = 'd', long = "daemon", action = ArgAction::SetTrue)]
+    pub daemon: bool,
+    /// 备份成功后删除本地源文件
+    #[arg(long = "rm", action = ArgAction::SetTrue)]
     pub remove_source: bool,
 }
 

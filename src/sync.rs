@@ -264,10 +264,26 @@ fn list_remote_files_recursive(client: &BaiduPcsClient, dir: &str) -> HashSet<St
 }
 
 /// backup 模式：扫描本地文件，跳过远程已存在的，仅上传缺失的
+/// daemon 模式下持续监控，每隔一段时间重新扫描
 pub(crate) fn run_backup_task(args: &BackupArgs, client: &BaiduPcsClient) {
     let local_root = &args.local;
     let remote_root = &args.remote;
     let remove_source = args.remove_source;
+    let daemon = args.daemon;
+
+    loop {
+        do_backup(local_root, remote_root, remove_source, client);
+
+        if !daemon {
+            break;
+        }
+        let interval = std::time::Duration::from_secs(60);
+        info!("守护模式: 等待 {} 秒后再次扫描...", interval.as_secs());
+        std::thread::sleep(interval);
+    }
+}
+
+fn do_backup(local_root: &str, remote_root: &str, remove_source: bool, client: &BaiduPcsClient) {
 
     let local_path = PathBuf::from(local_root)
         .canonicalize()

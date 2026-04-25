@@ -242,7 +242,11 @@ fn main() {
             }
         }
         Some(Commands::Backup(args)) => {
-            println!("备份: {} -> {}", args.local, args.remote);
+            if args.daemon {
+                println!("备份(守护模式): {} -> {}", args.local, args.remote);
+            } else {
+                println!("备份: {} -> {}", args.local, args.remote);
+            }
             sync::run_backup_task(args, &client);
         }
         Some(Commands::Wget(args)) => {
