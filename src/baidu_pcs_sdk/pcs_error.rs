@@ -103,7 +103,7 @@ fn try_translate_errno(msg: &String, errno: i64) -> String {
             -8 => "文件或目录已存在".to_string(),
             -9 => "文件或目录不存在".to_string(),
             -10 => "容量不足(云端容量已满)".to_string(),
-            _ => msg.to_string(),
+            _ => format!("errno={}, msg={}", errno, msg),
         };
     }
     msg.to_string()
