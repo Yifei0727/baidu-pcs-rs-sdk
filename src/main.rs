@@ -62,10 +62,7 @@ fn main() {
 
     // version 子命令无需配置和认证，直接输出版本信息
     if matches!(cli.command, Some(Commands::Version)) {
-        println!(
-            "{}",
-            env!("CARGO_PKG_VERSION")
-        );
+        println!("{}", env!("CARGO_PKG_VERSION"));
         return;
     }
 
@@ -124,7 +121,11 @@ fn main() {
             save_or_update_config(&mut config, None);
         }
         Some(Commands::Rx(args)) => {
-            println!("下载: {} -> {}", args.remote, args.local.as_deref().unwrap_or("."));
+            println!(
+                "下载: {} -> {}",
+                args.remote,
+                args.local.as_deref().unwrap_or(".")
+            );
             sync::run_download_task(args, &config, &client);
         }
         Some(Commands::Tx(args)) => {
@@ -204,9 +205,14 @@ fn main() {
                     }
                     Err(e) => {
                         let err_msg = e.to_string();
-                        if args.parents && err_msg.contains("父目录不存在") || err_msg.contains("110") {
+                        if args.parents && err_msg.contains("父目录不存在")
+                            || err_msg.contains("110")
+                        {
                             eprintln!("✗ 创建失败 (父目录不存在): {}", remote_path);
-                        } else if err_msg.contains("文件已存在") || err_msg.contains("已存在") || err_msg.contains("112") {
+                        } else if err_msg.contains("文件已存在")
+                            || err_msg.contains("已存在")
+                            || err_msg.contains("112")
+                        {
                             println!("⊘ 目录已存在: {}", remote_path);
                         } else {
                             eprintln!("✗ 创建失败: {}", e);

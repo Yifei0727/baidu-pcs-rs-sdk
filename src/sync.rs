@@ -409,8 +409,7 @@ fn list_share_files_recursive(
                 for item in list.data().list() {
                     if *item.is_dir() == 1 {
                         let sub_dir = item.path();
-                        let children =
-                            list_share_files_recursive(client, short_url, spwd, sub_dir);
+                        let children = list_share_files_recursive(client, short_url, spwd, sub_dir);
                         result.extend(children);
                     } else {
                         result.push((item.clone(), dir.to_string()));
@@ -466,7 +465,12 @@ pub(crate) fn run_wget_task(args: &WgetArgs, client: &BaiduPcsClient) {
                     client,
                     &short_url,
                     &spwd,
-                    &list.data().list().iter().map(|f| (f.clone(), "/".to_string())).collect::<Vec<_>>(),
+                    &list
+                        .data()
+                        .list()
+                        .iter()
+                        .map(|f| (f.clone(), "/".to_string()))
+                        .collect::<Vec<_>>(),
                     output_dir,
                 );
             }
@@ -568,11 +572,7 @@ fn download_share_files(
                 }
             }
             Err(e) => {
-                eprintln!(
-                    "获取文件 {} 的下载地址失败: {}",
-                    file.server_filename(),
-                    e
-                );
+                eprintln!("获取文件 {} 的下载地址失败: {}", file.server_filename(), e);
                 failed += 1;
             }
         }

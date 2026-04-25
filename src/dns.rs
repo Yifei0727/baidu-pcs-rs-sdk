@@ -36,7 +36,8 @@ impl Resolve for HickoryReqwestResolver {
     fn resolve(
         &self,
         name: Name,
-    ) -> Pin<Box<dyn Future<Output = Result<Addrs, Box<dyn std::error::Error + Send + Sync>>> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = Result<Addrs, Box<dyn std::error::Error + Send + Sync>>> + Send>>
+    {
         let host = name.as_str().to_string();
         let inner = self.inner.clone();
         Box::pin(async move {
@@ -72,7 +73,11 @@ pub(crate) fn use_custom_dns_if_present(
     let resolver_opts = ResolverOpts::default();
 
     // Build an AsyncResolver that uses the current Tokio runtime
-    let inner = HickoryAsyncResolver::new(resolver_cfg, resolver_opts, TokioConnectionProvider::default());
+    let inner = HickoryAsyncResolver::new(
+        resolver_cfg,
+        resolver_opts,
+        TokioConnectionProvider::default(),
+    );
 
     let resolver = HickoryReqwestResolver { inner };
     client_builder.dns_resolver(Arc::new(resolver))

@@ -1402,21 +1402,40 @@ impl BaiduPcsClient {
     }
 
     /// Download a byte range of the remote file identified by path. Returns the bytes read.
-    pub fn download_range_by_path(&self, path: &str, offset: u64, len: usize) -> Result<Vec<u8>, AppError> {
+    pub fn download_range_by_path(
+        &self,
+        path: &str,
+        offset: u64,
+        len: usize,
+    ) -> Result<Vec<u8>, AppError> {
         // Resolve fs_id by path
         let fs_id = self.get_fs_id_by_path(path)?;
         // Get file info (including dlink)
         let meta = self.get_file_info(true, vec![fs_id])?;
         if meta.list.is_empty() {
-            return Err(AppError::new(AppErrorType::Unknown, format!("no metadata for {}", path).as_str(), None));
+            return Err(AppError::new(
+                AppErrorType::Unknown,
+                format!("no metadata for {}", path).as_str(),
+                None,
+            ));
         }
         let file_info = &meta.list[0];
         let dlink = match &file_info.dlink {
             Some(d) => d.clone(),
-            None => return Err(AppError::new(AppErrorType::Unknown, "no download link available", None)),
+            None => {
+                return Err(AppError::new(
+                    AppErrorType::Unknown,
+                    "no download link available",
+                    None,
+                ))
+            }
         };
         let url = format!("{}&access_token={}", dlink, self.access_token.as_str());
-        let range_header = format!("bytes={}-{}", offset, offset + (len as u64).saturating_sub(1));
+        let range_header = format!(
+            "bytes={}-{}",
+            offset,
+            offset + (len as u64).saturating_sub(1)
+        );
 
         let fut = async {
             let resp = self
@@ -1429,9 +1448,16 @@ impl BaiduPcsClient {
             let status = resp.status();
             if !status.is_success() && status != reqwest::StatusCode::PARTIAL_CONTENT {
                 let txt = resp.text().await.unwrap_or_default();
-                return Err(AppError::new(AppErrorType::Network, format!("http error {}: {}", status, txt).as_str(), None));
+                return Err(AppError::new(
+                    AppErrorType::Network,
+                    format!("http error {}: {}", status, txt).as_str(),
+                    None,
+                ));
             }
-            let bytes = resp.bytes().await.map_err(|e| AppError::new(AppErrorType::Network, e.to_string().as_str(), None))?;
+            let bytes = resp
+                .bytes()
+                .await
+                .map_err(|e| AppError::new(AppErrorType::Network, e.to_string().as_str(), None))?;
             Ok::<Vec<u8>, AppError>(bytes.to_vec())
         };
 
