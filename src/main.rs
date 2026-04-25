@@ -20,6 +20,7 @@ use clap_complete::Shell;
 use log::info;
 use simplelog::{Config as LogConfig, LevelFilter, WriteLogger};
 use std::fs::File;
+use std::io::{Read, Write};
 use std::{env, fs};
 
 pub(crate) const BAIDU_PCS_APP: BaiduPcsApp = BaiduPcsApp {
@@ -28,7 +29,40 @@ pub(crate) const BAIDU_PCS_APP: BaiduPcsApp = BaiduPcsApp {
     app_secret: env!("BAIDU_PCS_APP_SECRET"),
     app_id: option_env!("BAIDU_PCS_APP_ID"),
 };
-fn check_for_update(dry_run: bool) {
+/// 根据编译期信息确定当前平台 target（与 CI build matrix 对应）
+fn current_target() -> &'static str {
+    match (env::consts::OS, env::consts::ARCH) {
+        ("windows", "x86_64") => "x86_64-pc-windows-msvc",
+        ("linux", "x86_64") => "x86_64-unknown-linux-gnu",
+        ("linux", "aarch64") => "aarch64-unknown-linux-gnu",
+        ("macos", "aarch64") => "aarch64-apple-darwin",
+        ("macos", "x86_64") => "x86_64-apple-darwin",
+        _ => "unknown",
+    }
+}
+
+/// 将版本字符串解析为 (major, minor, patch) 元组用于比较
+fn parse_version(v: &str) -> Option<(u32, u32, u32)> {
+    let parts: Vec<&str> = v.split('.').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    Some((
+        parts[0].parse().ok()?,
+        parts[1].parse().ok()?,
+        parts[2].parse().ok()?,
+    ))
+}
+
+/// 比较版本号：返回 true 表示 latest > current
+fn is_newer_version(latest: &str, current: &str) -> bool {
+    match (parse_version(latest), parse_version(current)) {
+        (Some(l), Some(c)) => l > c,
+        _ => latest != current, // 回退到字符串比较
+    }
+}
+
+fn check_for_update(dry_run: bool, download: Option<Option<String>>) {
     let current = env!("CARGO_PKG_VERSION");
     // 优先从 GitHub CI 环境变量构建 API 地址，本地构建则回退到 Cargo.toml repository
     let api_base = option_env!("GITHUB_API_URL").unwrap_or("https://api.github.com");
@@ -36,8 +70,6 @@ fn check_for_update(dry_run: bool) {
         // 回退：从 CARGO_PKG_REPOSITORY 解析出 owner/repo
         env!("CARGO_PKG_REPOSITORY")
             .trim_start_matches("https://github.com/")
-        // 注意：trim_start_matches 返回 &str，但 unwrap_or_else 需要 &&str
-        // 这里利用编译期常量拼接的特性，实际上 option_env! 和 env! 都是 &'static str
     });
     let url = format!("{api_base}/repos/{repo}/releases/latest");
 
@@ -45,30 +77,184 @@ fn check_for_update(dry_run: bool) {
         .user_agent("baidu-pcs-cli-rs")
         .build();
 
-    match client {
-        Ok(c) => match c.get(url).send() {
-            Ok(resp) => match resp.json::<serde_json::Value>() {
-                Ok(json) => {
-                    let latest = json["tag_name"].as_str().unwrap_or("unknown");
-                    let latest_trimmed = latest.trim_start_matches('v');
-                    if latest_trimmed == current {
-                        println!("当前已是最新版本: v{}", current);
-                    } else {
-                        println!("有新版本可用: {} (当前: v{})", latest, current);
-                        if dry_run {
+    let client = match client {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("检查更新失败: {}", e);
+            return;
+        }
+    };
+
+    let resp = match client.get(&url).send() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("检查更新失败: {}", e);
+            return;
+        }
+    };
+
+    let json = match resp.json::<serde_json::Value>() {
+        Ok(j) => j,
+        Err(e) => {
+            eprintln!("解析更新信息失败: {}", e);
+            return;
+        }
+    };
+
+    let latest = json["tag_name"].as_str().unwrap_or("unknown");
+    let latest_trimmed = latest.trim_start_matches('v');
+
+    if !is_newer_version(latest_trimmed, current) {
+        println!("当前已是最新版本: v{}", current);
+        return;
+    }
+
+    println!("有新版本可用: {} (当前: v{})", latest, current);
+
+    if dry_run {
+        return;
+    }
+
+    // --download 模式：自动下载最新版本
+    if let Some(download_path) = download {
+        let target = current_target();
+        if target == "unknown" {
+            eprintln!("无法识别当前平台，请手动下载");
+            if let Some(html_url) = json["html_url"].as_str() {
+                println!("发布页面: {}", html_url);
+            }
+            return;
+        }
+
+        // 在 assets 中查找匹配当前平台的文件
+        let asset = json["assets"].as_array().and_then(|assets| {
+            assets.iter().find(|a| {
+                a["name"].as_str()
+                    .map(|n| n.contains(target))
+                    .unwrap_or(false)
+            })
+        });
+
+        let asset = match asset {
+            Some(a) => a,
+            None => {
+                eprintln!("未找到平台 {} 的下载文件", target);
+                if let Some(html_url) = json["html_url"].as_str() {
+                    println!("请前往发布页面手动下载: {}", html_url);
+                }
+                return;
+            }
+        };
+
+        let asset_name = asset["name"].as_str().unwrap_or("unknown");
+        let download_url = match asset["browser_download_url"].as_str() {
+            Some(u) => u,
+            None => {
+                eprintln!("无法获取下载链接");
+                return;
+            }
+        };
+
+        // 确定下载目录
+        let download_dir = match download_path {
+            None => std::path::PathBuf::from("."),
+            Some(ref p) => {
+                let p = std::path::Path::new(p);
+                if p.is_file() {
+                    eprintln!("错误: '{}' 是一个文件，请提供一个目录路径", p.display());
+                    return;
+                }
+                p.to_path_buf()
+            }
+        };
+
+        // 创建目录（如果不存在）
+        if !download_dir.exists() {
+            if let Err(e) = fs::create_dir_all(&download_dir) {
+                eprintln!("创建目录失败: {} - {}", download_dir.display(), e);
+                return;
+            }
+        }
+
+        let save_path = download_dir.join(asset_name);
+
+        // 检查文件是否已存在
+        if save_path.exists() {
+            println!("文件已存在: {}", save_path.display());
+            print!("是否覆盖? [y/N] ");
+            let mut input = String::new();
+            if std::io::stdin().read_line(&mut input).is_err()
+                || !input.trim().eq_ignore_ascii_case("y")
+            {
+                println!("已取消下载");
+                return;
+            }
+        }
+
+        println!("正在下载 {} ...", asset_name);
+
+        // 下载到临时文件，完成后 rename
+        let tmp_path = save_path.with_extension("tmp");
+        let mut tmp_file = match File::create(&tmp_path) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("创建临时文件失败: {} - {}", tmp_path.display(), e);
+                return;
+            }
+        };
+
+        match client.get(download_url).send() {
+            Ok(mut resp) => {
+                let total_size = resp.content_length();
+                let mut downloaded: u64 = 0;
+                let mut buf = [0u8; 8192];
+                loop {
+                    match resp.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            if tmp_file.write_all(&buf[..n]).is_err() {
+                                eprintln!("写入文件失败");
+                                let _ = fs::remove_file(&tmp_path);
+                                return;
+                            }
+                            downloaded += n as u64;
+                            if let Some(total) = total_size {
+                                let pct = downloaded as f64 / total as f64 * 100.0;
+                                let mb_dl = downloaded as f64 / 1024.0 / 1024.0;
+                                let mb_total = total as f64 / 1024.0 / 1024.0;
+                                eprint!("\r  进度: {:.1}% ({:.1}/{:.1} MB)", pct, mb_dl, mb_total);
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("\n下载失败: {}", e);
+                            let _ = fs::remove_file(&tmp_path);
                             return;
                         }
-                        if let Some(html_url) = json["html_url"].as_str() {
-                            println!("暂不支持自动更新，请前往发布页面: {}", html_url);
-                        }
-                        // TODO: 非 dry-run 时执行自动更新
                     }
                 }
-                Err(e) => eprintln!("解析更新信息失败: {}", e),
-            },
-            Err(e) => eprintln!("检查更新失败: {}", e),
-        },
-        Err(e) => eprintln!("检查更新失败: {}", e),
+                eprintln!();
+            }
+            Err(e) => {
+                eprintln!("下载失败: {}", e);
+                let _ = fs::remove_file(&tmp_path);
+                return;
+            }
+        }
+
+        // 下载完成，rename 到最终路径
+        if let Err(e) = fs::rename(&tmp_path, &save_path) {
+            eprintln!("重命名文件失败: {} -> {} - {}", tmp_path.display(), save_path.display(), e);
+            let _ = fs::remove_file(&tmp_path);
+            return;
+        }
+
+        println!("下载完成: {}", save_path.display());
+        println!("请解压后替换当前可执行文件");
+    } else {
+        // 无 --download，仅提示发布页面
+        if let Some(html_url) = json["html_url"].as_str() {
+            println!("暂不支持自动更新，请前往发布页面: {}", html_url);
+        }
     }
 }
 
@@ -357,7 +543,7 @@ fn main() {
                 println!("{}", get_config_file_path(cli.config.as_ref()).display());
             }
             SelfCommand::Update(args) => {
-                check_for_update(args.dry_run);
+                check_for_update(args.dry_run, args.download.clone());
             }
         }
         return;

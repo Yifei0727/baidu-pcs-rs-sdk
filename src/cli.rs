@@ -82,6 +82,9 @@ pub struct UpdateArgs {
     /// 只检查是否有新版本，不执行更新
     #[arg(long, action = ArgAction::SetTrue)]
     pub dry_run: bool,
+    /// 下载最新版本到指定目录（不提供则下载到当前目录）
+    #[arg(long)]
+    pub download: Option<Option<String>>,
 }
 
 /// ls <remote> [-r]
