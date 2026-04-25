@@ -14,16 +14,17 @@
         - 查询网盘容量配额
         - 列出目录内容
         - 上传（支持大文件分片，进度条）与下载
-        - 删除文件/目录（支持递归）
+        - 备份（仅上传远程不存在的文件，支持守护模式）
+        - 删除、复制、移动文件/目录（支持递归）
         - 自定义 DNS 服务器（支持逗号分隔，按需加速/规避 DNS 污染）
 
 2. 用户使用说明
 
    2.1 安装与环境变量
 
-    - 先在百度网盘开放平台创建“我的应用”，获得 AppKey 与 Secret。 https://pan.baidu.com/union/console/createapp
+    - 先在百度网盘开放平台创建"我的应用"，获得 AppKey 与 Secret。 https://pan.baidu.com/union/console/createapp
 
-    - 在构建或安装前，需在“编译时”提供以下环境变量（env! 宏会在编译期读取，否则无法编译）：
+    - 在构建或安装前，需在"编译时"提供以下环境变量（env! 宏会在编译期读取，否则无法编译）：
 
         - `BAIDU_PCS_APP_NAME`: 应用名称
         - `BAIDU_PCS_APP_KEY`: AppKey
@@ -32,6 +33,9 @@
       > 也可以取网上搜（Github源码等）已有的公开应用，但不保证长期可用。
       > 但强烈建议自己创建应用，避免因他人应用被封禁而无法使用。且不能保证他人应用的安全性，请谨慎使用。
       > ** 此程序开源且可自行编译，凭据和数据、日志仅本地存储和使用。**
+
+      > **从源码构建时**，项目已在 `.cargo/config.toml` 中提供了默认凭据，可直接 `cargo build --release`，无需手动 export 环境变量。如需覆盖，在 shell 中 export 同名变量即可（优先级高于 `.cargo/config.toml`）。
+
       > > github 上某个仓库提供的凭据
       > 如 https://github.com/oott123/bpcs_uploader/blob/master/_bpcs_files_/core.php
       > * (Mac/Linux 示例)
@@ -67,7 +71,7 @@
 
     - 首次运行会提示进行设备码授权：执行 baidu-pcs-cli-rs auth，按提示在浏览器打开授权链接并输入验证码。
     - 配置文件位置（Linux 默认）：~/.config/baidu-pcs-rs/config.toml
-    - 可通过 --config 指定自定义路径。
+    - 可通过 --config 指定自定义路径，或使用 `app self config` 查看当前配置文件路径。
     - 日志：写入系统临时目录下的 baidu-pcs-rs/logs/{时间-进程号}.log。
 
 2.3 命令与参数
@@ -76,38 +80,52 @@
 
 > 例： 常见的操作
 > * 列出云盘文件`baidu-pcs-cli-rs ls /`
-> * 上传本地文件到云盘 `baidu-pcs-cli-rs up -l ./file.txt -r /data/backup/file.txt`
+> * 上传本地文件到云盘 `baidu-pcs-cli-rs up ./file.txt /data/backup/file.txt`
 > * 下载云盘文件到当前目录 `baidu-pcs-cli-rs dl /data/backup/file.txt`
 > * 删除云盘文件 `baidu-pcs-cli-rs rm /data/backup/file.txt`
+> * 备份本地目录到云盘 `baidu-pcs-cli-rs backup /data/photos /apps/backup`
+> * 守护模式持续备份 `baidu-pcs-cli-rs backup /data/photos /apps/backup --daemon`
+> * 查看配置文件路径 `baidu-pcs-cli-rs self config`
+> * 检查更新 `baidu-pcs-cli-rs self update`
 
     - 通用参数：
         - --config: 指定配置文件路径
-        - --debug: 开启 debug 日志
         - --dns: 指定用于解析 pan.baidu.com / d.pcs.baidu.com / openapi.baidu.com 的 DNS 服务器
                  （逗号分隔，支持形如 8.8.8.8 或 223.5.5.5:53 的地址）
     - 子命令：
         - `auth`（别名: `login`）: 进行设备码授权并保存 token
         - `quota`（别名: `df`, `du`）: 显示容量配额
             - -H/--human，或 -k/--kb，-m/--mb，-g/--gb 控制单位
-        - `list` <remote>（别名: `ls`）: 列出目录内容
-            - --recursive 递归列出
-        - `upload`（别名: `up` `tx`）: 上传/备份
-            - -l/--local <path> 本地路径（文件或目录），默认 /data/backup/
-            - -r/--remote <path> 网盘路径，默认 /
-            - --recursive 目录时递归（默认关）
-            - -K/--include-prefix 当指定 -l 时，是否保留本地路径前缀拼接到远端
-        - `download`（别名: `dl` `rx`）: 下载
-            - --recursive 当 remote 为目录时递归下载
-            - <remote> 远端路径
-            - [--local <path>] 本地保存目录（不指定则按文件名保存到当前目录）
-        - `remove`（别名: `rm`）: 删除
-            - <remote> 远端路径
-            - --recursive 递归删除目录
+        - `ls` <remote>（别名: `list`）: 列出目录内容
+            - -r/--recursive 递归列出
+        - `tx` <local> <remote>（别名: `upload`, `up`）: 上传
+            - -r/--recursive 目录时递归（默认关）
+            - --remove-source 上传完成后删除本地源文件
+        - `rx` <remote> [local]（别名: `download`, `dl`）: 下载
+            - -r/--recursive 当 remote 为目录时递归下载
+        - `backup` <local> <remote>: 备份（仅上传远程不存在的文件，跳过已存在的）
+            - -d/--daemon 守护模式，持续监控本地变更并自动备份
+            - --rm 备份成功后删除本地源文件
+        - `mkdir` <remote>...（别名: `md`）: 创建远程目录
+            - -p/--parents 父目录不存在时自动创建
+        - `rm` <remote>...（别名: `del`, `remove`）: 删除
+            - -r/--recursive 递归删除目录
+        - `cp` <src> <dest>（别名: `copy`）: 复制远程文件/目录
+        - `mv` <src> <dest>（别名: `move`, `rename`）: 移动/重命名远程文件/目录
+        - `wget` <share_url>: 下载分享链接文件到本地 **（目前不可用，相关接口需要 appid 所有者单独购买接口授权）**
+            - -p/--password 分享提取码
+            - -o/--output 本地保存目录
+        - `version`（别名: `ver`）: 显示版本信息
+        - `app self`（别名: `self`）: 管理本应用
+            - `config`（别名: `cfg`）: 显示当前配置文件路径
+            - `update`（别名: `up`）: 检查更新
+                - --dry-run 只检查是否有新版本，不执行更新
 
 提示与限制：
 
     * 小文件上传 upload_single_file 受路径限制：仅允许 /apps/{app-name}/ 前缀；CLI 内的大文件上传（upload_large_file）不受该限制。
     * 下载目录时需加 --recursive，否则只尝试按文件处理。
+    * `wget` 命令目前不可用：相关分享下载接口需要 appid 所有者单独购买接口授权，普通应用无法调用。
 
 2.4 自定义 DNS 解析
 
@@ -130,10 +148,10 @@
              ```
         2) 持久生效（写入配置文件）
            - 首次运行携带 --dns 参数进行 auth 或其他命令，将把该值写入配置文件。
-           - 也可手动在配置文件中添加/修改 dns 字段（见“配置文件说明”）。
+           - 也可手动在配置文件中添加/修改 dns 字段（见"配置文件说明"）。
     - 格式：逗号分隔的 IP 或 IP:端口，允许空格，例如：
       "8.8.8.8, 1.1.1.1" 或 "223.5.5.5:53,114.114.114.114"。
-    - 优先级：若同时在“配置文件”和“命令行”指定 DNS，将优先使用配置文件中的值；配置文件未设置时才使用命令行传入的值。
+    - 优先级：若同时在"配置文件"和"命令行"指定 DNS，将优先使用配置文件中的值；配置文件未设置时才使用命令行传入的值。
 
 3. 开发者调用说明（Rust SDK）
 
@@ -208,11 +226,12 @@
 5. 日志与调试
 
     - 日志路径: {系统临时目录}/baidu-pcs-rs/logs
-    - --debug 可开启更详细的日志（同时建议设置 RUST_LOG）。
+    - -v / -vv / -vvv 控制日志详细程度（Info / Debug / Trace）。
 
 6. 常见问题
 
-    - 编译时报 “环境变量未定义”：需在编译/安装前导出 BAIDU_PCS_APP_NAME/KEY/SECRET。
+    - 编译时报 "环境变量未定义"：需在编译/安装前导出 BAIDU_PCS_APP_NAME/KEY/SECRET。从源码构建时项目已包含 `.cargo/config.toml` 默认值，可直接编译。
     - 小文件上传 31064 错误：请将目标路径置于 /apps/{app-name}/ 下，或改用大文件分片上传接口。
     - 目录下载失败：请添加 --recursive。
     - DNS 不生效：请确认 --dns 格式为 逗号分隔的 IP 或 IP:端口；首次运行时可携带 --dns 以写入配置文件。若配置文件与命令行同时指定，将优先使用配置文件中的 dns。
+    - wget 分享下载不可用：相关接口需要 appid 所有者单独购买接口授权，普通应用无法调用。
