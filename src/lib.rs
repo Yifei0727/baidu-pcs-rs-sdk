@@ -20,6 +20,8 @@ pub mod baidu_pcs_sdk {
         pub app_secret: &'static str,
         /// 基本信息-应用名称
         pub app_name: &'static str,
+        /// 基本信息-应用id 某些情况才会用到
+        pub app_id: Option<&'static str>,
     }
 
     /// 认证授权时调用的接口，错误时返回此类型
