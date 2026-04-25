@@ -1,5 +1,5 @@
 ---
-name: baidu-pan-wget
+name: baidu-pcs-wget
 description: 下载百度网盘分享链接中的文件到本地，支持需要提取码的分享链接，可指定本地保存目录。当用户需要从百度网盘分享链接下载文件时激活此技能。
 ---
 

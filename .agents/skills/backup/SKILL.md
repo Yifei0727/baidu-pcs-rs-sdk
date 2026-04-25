@@ -1,5 +1,5 @@
 ---
-name: baidu-pan-backup
+name: baidu-pcs-backup
 description: 将本地文件/目录增量备份到百度网盘，仅上传网盘中尚不存在的文件，已存在且一致的文件自动跳过。当用户需要定期备份本地数据到网盘、避免重复上传时激活此技能。
 ---
 
@@ -10,20 +10,22 @@ description: 将本地文件/目录增量备份到百度网盘，仅上传网盘
 - 定期将本地目录备份到网盘（增量，不重复上传）
 - 首次全量备份后，后续仅同步新增文件
 - 结合 `--remove-source` 将本地文件归档迁移到云端
+- 使用 `--daemon` 守护模式持续监控并自动备份
 
 ## 命令格式
 
 ```bash
-baidu-pcs-cli-rs backup <本地路径> <远程路径> [--remove-source]
+baidu-pcs-cli-rs backup [本地路径] [远程路径] [-d] [--rm]
 ```
 
 ## 参数说明
 
 | 参数 | 类型 | 说明 | 示例 |
 |------|------|------|------|
-| `<本地路径>` | 必填 | 本地源文件或目录路径 | `~/documents` |
-| `<远程路径>` | 必填 | 网盘目标目录路径 | `/备份/documents` |
-| `--remove-source` | 可选 | 备份成功后删除本地源文件 | `--remove-source` |
+| `<本地路径>` | 可选 | 本地源文件或目录路径（未提供时从配置文件读取） | `~/documents` |
+| `<远程路径>` | 可选 | 网盘目标目录路径（未提供时从配置文件读取） | `/备份/documents` |
+| `-d` / `--daemon` | 可选 | 守护模式，持续监控本地变更并自动备份 | `-d` |
+| `--rm` | 可选 | 备份成功后删除本地源文件 | `--rm` |
 
 ## 与 `tx` 命令的区别
 
@@ -35,7 +37,9 @@ baidu-pcs-cli-rs backup <本地路径> <远程路径> [--remove-source]
 ## 注意事项
 
 - 文件存在性通过**文件名**判断，若内容变更但文件名相同则不会更新（如需覆盖更新请使用 `tx`）
-- `--remove-source` 在备份成功后删除本地源文件，请确认后再使用
+- `--rm` 在备份成功后删除本地源文件，请确认后再使用
+- 守护模式（`--daemon`）下程序会持续运行，监控本地文件变更并自动备份新增文件
+- 本地路径和远程路径均可省略，未提供时会尝试从配置文件读取
 
 ## 示例
 
@@ -43,6 +47,12 @@ baidu-pcs-cli-rs backup <本地路径> <远程路径> [--remove-source]
 # 增量备份本地目录到网盘
 baidu-pcs-cli-rs backup ~/documents /备份/documents
 
+# 守护模式持续备份
+baidu-pcs-cli-rs backup ~/documents /备份/documents --daemon
+
 # 备份并删除本地源（归档到云端）
-baidu-pcs-cli-rs backup ~/旧项目 /归档/旧项目 --remove-source
+baidu-pcs-cli-rs backup ~/旧项目 /归档/旧项目 --rm
+
+# 使用配置文件中的路径，守护模式
+baidu-pcs-cli-rs backup --daemon
 ```

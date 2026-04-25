@@ -1,5 +1,5 @@
 ---
-name: baidu-pan-rx
+name: baidu-pcs-rx
 description: 从百度网盘下载文件或目录到本地（远程 → 本地），支持递归下载整个目录。当用户需要从网盘下载文件或目录到本机时激活此技能。
 ---
 

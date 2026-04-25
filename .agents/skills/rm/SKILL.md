@@ -1,5 +1,5 @@
 ---
-name: baidu-pan-rm
+name: baidu-pcs-rm
 description: 删除百度网盘中的一个或多个文件/目录，支持批量删除和递归删除。当用户需要清理、删除网盘上的文件或目录时激活此技能。
 ---
 

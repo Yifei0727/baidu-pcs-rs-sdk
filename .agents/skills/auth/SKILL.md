@@ -1,5 +1,5 @@
 ---
-name: baidu-pan-auth
+name: baidu-pcs-auth
 description: 对百度网盘 CLI 工具（baidu-pcs-cli-rs）执行 OAuth 设备码授权登录，或检查当前登录状态是否有效。当用户需要登录百度网盘、切换账号或授权认证时激活此技能。
 ---
 

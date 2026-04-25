@@ -1,5 +1,5 @@
 ---
-name: baidu-pan-ls
+name: baidu-pcs-ls
 description: 列出百度网盘指定远程目录下的文件和子目录，支持递归展开。当用户需要查看百度网盘目录内容、浏览文件列表时激活此技能。
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: baidu-pan-tx
+name: baidu-pcs-tx
 description: 将本地文件或目录上传到百度网盘（本地 → 远程），支持递归上传目录和上传后删除本地源文件。当用户需要上传文件到网盘时激活此技能。
 ---
 

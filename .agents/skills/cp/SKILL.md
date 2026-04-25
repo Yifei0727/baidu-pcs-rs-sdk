@@ -1,5 +1,5 @@
 ---
-name: baidu-pan-cp
+name: baidu-pcs-cp
 description: 在百度网盘内复制文件或目录（远程到远程），不涉及本地文件。当用户需要在网盘内部复制、备份文件或目录时激活此技能。
 ---
 

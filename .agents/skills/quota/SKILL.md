@@ -1,5 +1,5 @@
 ---
-name: baidu-pan-quota
+name: baidu-pcs-quota
 description: 查询百度网盘的磁盘配额信息，显示总空间、已用空间、免费空间和空闲空间，支持多种单位格式。当用户需要了解网盘剩余容量、存储使用情况时激活此技能。
 ---
 

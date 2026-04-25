@@ -1,5 +1,5 @@
 ---
-name: baidu-pan-mv
+name: baidu-pcs-mv
 description: 在百度网盘内移动或重命名文件/目录（远程到远程）。当用户需要在网盘中移动文件位置或对文件/目录重命名时激活此技能。
 ---
 
