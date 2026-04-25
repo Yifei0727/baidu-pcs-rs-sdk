@@ -55,6 +55,8 @@ pub enum Commands {
     /// 管理本应用自身
     #[command(alias = "self")]
     AppSelf(SelfArgs),
+    /// 生成 shell 补全脚本
+    Completion(CompletionArgs),
 }
 
 /// app self 子命令
@@ -201,4 +203,18 @@ pub struct MkdirArgs {
     /// 如果父目录不存在，则创建父目录
     #[arg(short = 'p', long = "parents", action = ArgAction::SetTrue)]
     pub parents: bool,
+}
+
+/// completion 子命令参数
+#[derive(Args)]
+pub struct CompletionArgs {
+    /// Shell 类型 (默认: 当前 shell)
+    #[arg(short = 's', long = "shell")]
+    pub shell: Option<String>,
+    /// 将补全脚本安装到 shell 配置文件
+    #[arg(short = 'i', long = "install", action = ArgAction::SetTrue)]
+    pub install: bool,
+    /// 跳过确认（非交互）
+    #[arg(short = 'y', long = "yes", action = ArgAction::SetTrue)]
+    pub yes: bool,
 }

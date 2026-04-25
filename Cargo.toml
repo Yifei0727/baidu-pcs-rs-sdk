@@ -35,6 +35,7 @@ futures = "0.3.30"
 md-5 = "0.10.6"
 hex = "0.4.3"
 clap = { version = "4.4.18", features = ["derive"] }
+clap_complete = "4"
 bytefmt = "0.1.7"
 indicatif = { version = "0.18.0", features = ["improved_unicode"] }
 simplelog = "0.12.1"

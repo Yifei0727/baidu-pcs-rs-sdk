@@ -9,13 +9,14 @@ mod config;
 mod sync;
 
 use crate::auth::{device_auth_with_dns, first_app_use, renew_token};
-use crate::cli::{CommandLineArgs, Commands, SelfCommand};
+use crate::cli::{CommandLineArgs, Commands, CompletionArgs, SelfCommand};
 use crate::config::{config_load_or_init, get_config_file_path, save_or_update_config, Config};
 use baidu_pcs_rs_sdk::baidu_pcs_sdk::pcs::BaiduPcsClient;
 use baidu_pcs_rs_sdk::baidu_pcs_sdk::BaiduPcsApp;
 use byte_unit::UnitType;
 use chrono::Local;
-use clap::Parser;
+use clap::{CommandFactory, Parser};
+use clap_complete::Shell;
 use log::info;
 use simplelog::{Config as LogConfig, LevelFilter, WriteLogger};
 use std::fs::File;
@@ -71,6 +72,238 @@ fn check_for_update(dry_run: bool) {
     }
 }
 
+fn run_completion(args: &CompletionArgs) {
+    let shell_name = args.shell.as_deref().unwrap_or_else(|| detect_shell());
+    let shell: Shell = match shell_name.to_lowercase().as_str() {
+        "bash" => Shell::Bash,
+        "zsh" => Shell::Zsh,
+        "fish" => Shell::Fish,
+        "powershell" | "pwsh" => Shell::PowerShell,
+        other => {
+            eprintln!("不支持的 shell: {}\n支持的 shell: bash, zsh, fish, powershell", other);
+            return;
+        }
+    };
+
+    if args.install {
+        install_completion(shell, args.yes);
+    } else {
+        clap_complete::generate(
+            shell,
+            &mut CommandLineArgs::command(),
+            "baidu-pcs-cli-rs",
+            &mut std::io::stdout(),
+        );
+    }
+}
+
+fn detect_shell() -> &'static str {
+    // 优先从 SHELL 环境变量检测
+    if let Ok(shell) = env::var("SHELL") {
+        if shell.contains("zsh") {
+            return "zsh";
+        } else if shell.contains("bash") {
+            return "bash";
+        } else if shell.contains("fish") {
+            return "fish";
+        }
+    }
+    // Windows 下检测 PSModulePath 判断 PowerShell
+    if env::var("PSModulePath").is_ok() {
+        return "powershell";
+    }
+    // 默认 bash
+    "bash"
+}
+
+fn install_completion(shell: Shell, skip_confirm: bool) {
+    match shell {
+        Shell::Zsh => install_completion_zsh(skip_confirm),
+        Shell::Bash | Shell::Fish | Shell::PowerShell => {
+            install_completion_eval(shell, skip_confirm)
+        }
+        _ => eprintln!("不支持自动安装该 shell 的补全脚本"),
+    }
+}
+
+/// zsh: 写入 fpath 目录下的补全文件（避免 eval 时 glob 展开问题）
+fn install_completion_zsh(skip_confirm: bool) {
+    let comp_dir = dirs_home().join(".zsh/completion");
+    let comp_file = comp_dir.join("_baidu-pcs-cli-rs");
+    let rc_file = dirs_home().join(".zshrc");
+
+    println!("将补全脚本安装到: {}", comp_file.display());
+    println!("并在 {} 中添加 fpath 设置", rc_file.display());
+    if !skip_confirm {
+        println!("是否继续? [y/N] ");
+        let mut input = String::new();
+        if std::io::stdin().read_line(&mut input).is_err() {
+            eprintln!("读取输入失败");
+            return;
+        }
+        if !input.trim().eq_ignore_ascii_case("y") {
+            println!("已取消");
+            return;
+        }
+    }
+
+    // 确保补全目录存在
+    if let Err(e) = fs::create_dir_all(&comp_dir) {
+        eprintln!("创建目录失败: {} - {}", comp_dir.display(), e);
+        return;
+    }
+
+    // 写入补全文件
+    let mut buf = Vec::new();
+    clap_complete::generate(
+        Shell::Zsh,
+        &mut CommandLineArgs::command(),
+        "baidu-pcs-cli-rs",
+        &mut buf,
+    );
+    if let Err(e) = fs::write(&comp_file, &buf) {
+        eprintln!("写入 {} 失败: {}", comp_file.display(), e);
+        return;
+    }
+
+    // 在 .zshrc 中添加 fpath 和 compinit（如未添加）
+    let fpath_line = r#"fpath=(~/.zsh/completion $fpath)"#;
+    let compinit_line = "autoload -Uz compinit && compinit -i";
+    if rc_file.exists() {
+        if let Ok(content) = fs::read_to_string(&rc_file) {
+            let mut to_append = Vec::new();
+            if !content.contains("fpath=(") || !content.contains(".zsh/completion") {
+                to_append.push(format!("# baidu-pcs-cli-rs zsh completion\n{}", fpath_line));
+            }
+            // 仅在没有 compinit 时添加
+            if !content.contains("compinit") {
+                to_append.push(compinit_line.to_string());
+            }
+            if to_append.is_empty() {
+                println!("补全脚本已安装到 {}，.zshrc 无需修改", comp_file.display());
+                return;
+            }
+            if let Err(e) = fs::OpenOptions::new()
+                .append(true)
+                .open(&rc_file)
+                .and_then(|mut f| {
+                    use std::io::Write;
+                    writeln!(f)?;
+                    for line in &to_append {
+                        writeln!(f, "{}", line)?;
+                    }
+                    Ok(())
+                })
+            {
+                eprintln!("写入 {} 失败: {}", rc_file.display(), e);
+                return;
+            }
+        }
+    } else {
+        // .zshrc 不存在，创建
+        if let Err(e) = fs::write(
+            &rc_file,
+            format!(
+                "# baidu-pcs-cli-rs zsh completion\n{}\n{}\n",
+                fpath_line, compinit_line
+            ),
+        ) {
+            eprintln!("写入 {} 失败: {}", rc_file.display(), e);
+            return;
+        }
+    }
+    println!(
+        "补全脚本已安装。请执行 `source ~/.zshrc` 或重新打开终端使其生效"
+    );
+}
+
+/// bash/fish/powershell: 追加 eval/source snippet 到 rc 文件
+fn install_completion_eval(shell: Shell, skip_confirm: bool) {
+    let (rc_file, snippet) = match shell {
+        Shell::Bash => {
+            let rc = dirs_home().join(".bashrc");
+            let s = r#"eval "$(baidu-pcs-cli-rs completion)""#.to_string();
+            (rc, s)
+        }
+        Shell::Fish => {
+            let rc = dirs_home().join(".config/fish/config.fish");
+            let s = r#"baidu-pcs-cli-rs completion | source"#.to_string();
+            (rc, s)
+        }
+        Shell::PowerShell => {
+            let profile = if cfg!(target_os = "windows") {
+                dirs_home().join("Documents/WindowsPowerShell/Microsoft.PowerShell_profile.ps1")
+            } else {
+                dirs_home().join(".config/powershell/Microsoft.PowerShell_profile.ps1")
+            };
+            let s = r#"Invoke-Expression ($(baidu-pcs-cli-rs completion --shell powershell) | Out-String)"#.to_string();
+            (profile, s)
+        }
+        _ => unreachable!(),
+    };
+
+    println!("将补全脚本安装到: {}", rc_file.display());
+    if !skip_confirm {
+        println!("是否继续? [y/N] ");
+        let mut input = String::new();
+        if std::io::stdin().read_line(&mut input).is_err() {
+            eprintln!("读取输入失败");
+            return;
+        }
+        if !input.trim().eq_ignore_ascii_case("y") {
+            println!("已取消");
+            return;
+        }
+    }
+
+    // 如果文件已有相同 snippet 则跳过
+    if rc_file.exists() {
+        if let Ok(content) = fs::read_to_string(&rc_file) {
+            if content.contains(snippet.trim()) {
+                println!("补全脚本已存在于 {}，跳过", rc_file.display());
+                return;
+            }
+        }
+    }
+
+    // 确保父目录存在
+    if let Some(parent) = rc_file.parent() {
+        if !parent.exists() {
+            if let Err(e) = fs::create_dir_all(parent) {
+                eprintln!("创建目录失败: {} - {}", parent.display(), e);
+                return;
+            }
+        }
+    }
+
+    // 追加 snippet
+    if let Err(e) = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&rc_file)
+        .and_then(|mut f| {
+            use std::io::Write;
+            writeln!(f)?;
+            writeln!(f, "# baidu-pcs-cli-rs shell completion")?;
+            writeln!(f, "{}", snippet)?;
+            Ok(())
+        })
+    {
+        eprintln!("写入 {} 失败: {}", rc_file.display(), e);
+        return;
+    }
+    println!(
+        "补全脚本已安装到 {}，请重新打开终端或 source 该文件使其生效",
+        rc_file.display()
+    );
+}
+
+fn dirs_home() -> std::path::PathBuf {
+    directories::BaseDirs::new()
+        .map(|d| d.home_dir().to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+}
+
 fn main() {
     let cli = CommandLineArgs::parse();
     // 日志文件初始化
@@ -108,6 +341,12 @@ fn main() {
     // version 子命令无需配置和认证，直接输出版本信息
     if matches!(cli.command, Some(Commands::Version)) {
         println!("{}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+
+    // completion 子命令无需配置和认证
+    if let Some(Commands::Completion(args)) = &cli.command {
+        run_completion(args);
         return;
     }
 
@@ -285,6 +524,7 @@ fn main() {
         }
         Some(Commands::Version) => unreachable!("已在前面提前处理"),
         Some(Commands::AppSelf(_)) => unreachable!("已在前面提前处理"),
+        Some(Commands::Completion(_)) => unreachable!("已在前面提前处理"),
         Some(Commands::Quota(args)) => match client.get_user_quota(true, true) {
             Ok(quota) => {
                 let total = *quota.total();
