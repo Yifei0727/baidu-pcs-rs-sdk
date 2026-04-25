@@ -165,6 +165,14 @@ enum HttpMethod {
     Post,
 }
 
+/// payload 的编码格式
+enum PayloadFormat {
+    /// application/x-www-form-urlencoded（默认）
+    UrlEncoded,
+    /// multipart/form-data
+    Multipart,
+}
+
 #[derive(Serialize, Debug, Clone)]
 pub struct ProgressInfo {
     /// 总字节数
@@ -238,13 +246,13 @@ impl BaiduPcsClient {
         R: DeserializeOwned,
     {
         let url = format!("{}{}", PREFIX, path);
-        self._request(url, m, params, payload)
+        self._request(url, m, params, payload, PayloadFormat::UrlEncoded)
     }
 
-    fn _request<T, P, R>(
+    fn request_multipart<T, P, R>(
         &self,
-        url: String,
         m: HttpMethod,
+        path: &str,
         params: T,
         payload: Option<P>,
     ) -> Result<R, AppError>
@@ -253,8 +261,25 @@ impl BaiduPcsClient {
         P: Serialize,
         R: DeserializeOwned,
     {
+        let url = format!("{}{}", PREFIX, path);
+        self._request(url, m, params, payload, PayloadFormat::Multipart)
+    }
+
+    fn _request<T, P, R>(
+        &self,
+        url: String,
+        m: HttpMethod,
+        params: T,
+        payload: Option<P>,
+        format: PayloadFormat,
+    ) -> Result<R, AppError>
+    where
+        T: Serialize,
+        P: Serialize,
+        R: DeserializeOwned,
+    {
         debug!(
-            "_request {} {}?{} {}",
+            "_request {} {}?{} {} {}",
             match m {
                 Get => "GET",
                 Post => "POST",
@@ -265,6 +290,10 @@ impl BaiduPcsClient {
                 "with payload"
             } else {
                 "no payload"
+            },
+            match format {
+                PayloadFormat::UrlEncoded => "urlencoded",
+                PayloadFormat::Multipart => "multipart",
             }
         );
         let fetch = async {
@@ -273,7 +302,24 @@ impl BaiduPcsClient {
                 Post => {
                     let chain = self.client.post(url.as_str());
                     match payload {
-                        Some(p) => chain.form(&p),
+                        Some(p) => match format {
+                            PayloadFormat::UrlEncoded => chain.form(&p),
+                            PayloadFormat::Multipart => {
+                                let mut form = reqwest::multipart::Form::new();
+                                let json = serde_json::to_value(&p)
+                                    .unwrap_or(serde_json::Value::Object(Default::default()));
+                                if let serde_json::Value::Object(map) = json {
+                                    for (k, v) in map {
+                                        let text = match v {
+                                            serde_json::Value::String(s) => s,
+                                            other => other.to_string(),
+                                        };
+                                        form = form.text(k, text);
+                                    }
+                                }
+                                chain.multipart(form)
+                            }
+                        },
                         None => chain,
                     }
                 }
@@ -555,6 +601,7 @@ impl BaiduPcsClient {
                 upload_version: "2.0",
             },
             None::<()>,
+            PayloadFormat::UrlEncoded,
         )
     }
 
@@ -1235,7 +1282,7 @@ impl BaiduPcsClient {
             #[serde(skip_serializing_if = "Option::is_none")]
             pwd: Option<&'a str>,
         }
-        self.request(
+        self.request_multipart(
             Post,
             PATH,
             Params {
@@ -1275,7 +1322,7 @@ impl BaiduPcsClient {
             #[serde(skip_serializing_if = "Option::is_none")]
             page_size: Option<u32>,
         }
-        self.request(
+        self.request_multipart(
             Post,
             PATH,
             Params {
