@@ -1,0 +1,6 @@
+# 本地构建环境变量（供 Rust env! 宏在编译期读取）
+# 实际部署时可在此处覆盖，或通过 shell export / Cross.toml passthrough 传入
+[env]
+BAIDU_PCS_APP_NAME = "bpcs_uploader"
+BAIDU_PCS_APP_KEY = "uFBSHEwWE6DD94SQx9z77vgG"
+BAIDU_PCS_APP_SECRET = "7w6wdSFsTk6Vv586r1W1ozHLoDGhXogD"
