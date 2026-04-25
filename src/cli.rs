@@ -28,7 +28,7 @@ pub enum Commands {
     #[command(alias = "copy")]
     Cp(CpArgs),
     /// 移动/重命名远程文件/目录
-    #[command(alias = "rename")]
+    #[command(alias = "rename", alias = "move")]
     Mv(MvArgs),
     /// 删除远程文件/目录
     #[command(alias = "del", alias = "remove")]
@@ -154,7 +154,7 @@ pub struct WgetArgs {
     /// 百度网盘分享链接，如 https://pan.baidu.com/s/xxxxx
     pub share_url: String,
     /// 分享提取码（如有）
-    #[arg(short = 'p', long = "password")]
+    #[arg(short = 'p', long = "password", alias = "pwd")]
     pub password: Option<String>,
     /// 本地保存目录（默认当前目录）
     #[arg(short = 'o', long = "output")]
