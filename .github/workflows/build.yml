@@ -2,7 +2,6 @@ name: Build Multi-Platform
 
 on:
   push:
-    branches: [ main ]
     tags: [ '*' ]
   pull_request:
 
@@ -108,7 +107,7 @@ jobs:
   publish:
     name: Publish to crates.io
     needs: build
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     env:
       BAIDU_PCS_APP_KEY: ${{ secrets.BAIDU_PCS_APP_KEY }}
