@@ -9,7 +9,7 @@ mod config;
 mod sync;
 
 use crate::auth::{device_auth_with_dns, first_app_use, renew_token};
-use crate::cli::{CommandLineArgs, Commands};
+use crate::cli::{CommandLineArgs, Commands, SelfCommand};
 use crate::config::{config_load_or_init, get_config_file_path, save_or_update_config, Config};
 use baidu_pcs_rs_sdk::baidu_pcs_sdk::pcs::BaiduPcsClient;
 use baidu_pcs_rs_sdk::baidu_pcs_sdk::BaiduPcsApp;
@@ -27,6 +27,50 @@ pub(crate) const BAIDU_PCS_APP: BaiduPcsApp = BaiduPcsApp {
     app_secret: env!("BAIDU_PCS_APP_SECRET"),
     app_id: option_env!("BAIDU_PCS_APP_ID"),
 };
+fn check_for_update(dry_run: bool) {
+    let current = env!("CARGO_PKG_VERSION");
+    // 优先从 GitHub CI 环境变量构建 API 地址，本地构建则回退到 Cargo.toml repository
+    let api_base = option_env!("GITHUB_API_URL").unwrap_or("https://api.github.com");
+    let repo = option_env!("GITHUB_REPOSITORY").unwrap_or_else(|| {
+        // 回退：从 CARGO_PKG_REPOSITORY 解析出 owner/repo
+        env!("CARGO_PKG_REPOSITORY")
+            .trim_start_matches("https://github.com/")
+        // 注意：trim_start_matches 返回 &str，但 unwrap_or_else 需要 &&str
+        // 这里利用编译期常量拼接的特性，实际上 option_env! 和 env! 都是 &'static str
+    });
+    let url = format!("{api_base}/repos/{repo}/releases/latest");
+
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("baidu-pcs-cli-rs")
+        .build();
+
+    match client {
+        Ok(c) => match c.get(url).send() {
+            Ok(resp) => match resp.json::<serde_json::Value>() {
+                Ok(json) => {
+                    let latest = json["tag_name"].as_str().unwrap_or("unknown");
+                    let latest_trimmed = latest.trim_start_matches('v');
+                    if latest_trimmed == current {
+                        println!("当前已是最新版本: v{}", current);
+                    } else {
+                        println!("有新版本可用: {} (当前: v{})", latest, current);
+                        if dry_run {
+                            return;
+                        }
+                        if let Some(html_url) = json["html_url"].as_str() {
+                            println!("暂不支持自动更新，请前往发布页面: {}", html_url);
+                        }
+                        // TODO: 非 dry-run 时执行自动更新
+                    }
+                }
+                Err(e) => eprintln!("解析更新信息失败: {}", e),
+            },
+            Err(e) => eprintln!("检查更新失败: {}", e),
+        },
+        Err(e) => eprintln!("检查更新失败: {}", e),
+    }
+}
+
 fn main() {
     let cli = CommandLineArgs::parse();
     // 日志文件初始化
@@ -64,6 +108,19 @@ fn main() {
     // version 子命令无需配置和认证，直接输出版本信息
     if matches!(cli.command, Some(Commands::Version)) {
         println!("{}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+
+    // self 子命令无需配置和认证
+    if let Some(Commands::AppSelf(args)) = &cli.command {
+        match &args.command {
+            SelfCommand::Config => {
+                println!("{}", get_config_file_path(cli.config.as_ref()).display());
+            }
+            SelfCommand::Update(args) => {
+                check_for_update(args.dry_run);
+            }
+        }
         return;
     }
 
@@ -223,6 +280,7 @@ fn main() {
             }
         }
         Some(Commands::Version) => unreachable!("已在前面提前处理"),
+        Some(Commands::AppSelf(_)) => unreachable!("已在前面提前处理"),
         Some(Commands::Quota(args)) => match client.get_user_quota(true, true) {
             Ok(quota) => {
                 let total = *quota.total();

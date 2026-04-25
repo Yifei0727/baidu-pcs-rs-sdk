@@ -52,6 +52,34 @@ pub enum Commands {
     /// 显示版本信息
     #[command(alias = "ver")]
     Version,
+    /// 管理本应用自身
+    #[command(alias = "self")]
+    AppSelf(SelfArgs),
+}
+
+/// app self 子命令
+#[derive(Args)]
+pub struct SelfArgs {
+    #[command(subcommand)]
+    pub command: SelfCommand,
+}
+
+#[derive(Subcommand)]
+pub enum SelfCommand {
+    /// 显示当前配置文件路径
+    #[command(alias = "cfg")]
+    Config,
+    /// 检查更新
+    #[command(alias = "up")]
+    Update(UpdateArgs),
+}
+
+/// self update 参数
+#[derive(Args)]
+pub struct UpdateArgs {
+    /// 只检查是否有新版本，不执行更新
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub dry_run: bool,
 }
 
 /// ls <remote> [-r]
