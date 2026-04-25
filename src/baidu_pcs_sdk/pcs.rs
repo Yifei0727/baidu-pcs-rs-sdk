@@ -1240,7 +1240,7 @@ impl BaiduPcsClient {
             PATH,
             Params {
                 product: "netdisk",
-                appid: "45051599",
+                appid: "250528",
                 short_url,
             },
             Some(Body { pwd }),
@@ -1280,7 +1280,7 @@ impl BaiduPcsClient {
             PATH,
             Params {
                 product: "netdisk",
-                appid: "4501599",
+                appid: "250528",
             },
             Some(Body {
                 short_url,
@@ -1335,7 +1335,7 @@ impl BaiduPcsClient {
             Post,
             PATH,
             Params {
-                appid: "45051599",
+                appid: "250528",
                 product: "netdisk",
                 short_url,
                 sign: sign.as_str(),
