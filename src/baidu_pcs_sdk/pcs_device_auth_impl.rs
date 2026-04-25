@@ -231,9 +231,9 @@ mod test {
     use std::env;
 
     const BAIDU_PCS_APP: BaiduPcsApp = BaiduPcsApp {
-        app_key: "bpcs_uploader",
-        app_secret: "uFBSHEwWE6DD94SQx9z77vgG",
-        app_name: "7w6wdSFsTk6Vv586r1W1ozHLoDGhXogD",
+        app_key: env!("BAIDU_PCS_APP_KEY"),
+        app_secret: env!("BAIDU_PCS_APP_SECRET"),
+        app_name: env!("BAIDU_PCS_APP_NAME"),
         app_id: None,
     };
     #[test]
