@@ -7,7 +7,7 @@ pub struct CommandLineArgs {
     #[command(subcommand)]
     pub command: Option<Commands>,
 
-    /// 配置文件路径， 可选 默认  用户应用配置目录下的 baidu-pan-rs/config.toml
+    /// 配置文件路径， 可选 默认配置路径 可使用 `self config` 命令获取
     #[arg(short, long, default_value = None)]
     pub config: Option<String>,
 
