@@ -14,10 +14,10 @@ description: 查询百度网盘的磁盘配额信息，显示总空间、已用�
 ## 命令格式
 
 ```bash
-baidu-pan-cli-rs quota [-H] [-k] [-m] [-g] [-v]
+baidu-pcs-cli-rs quota [-H] [-k] [-m] [-g] [-v]
 # 别名
-baidu-pan-cli-rs df
-baidu-pan-cli-rs du
+baidu-pcs-cli-rs df
+baidu-pcs-cli-rs du
 ```
 
 ## 参数说明
@@ -43,14 +43,14 @@ baidu-pan-cli-rs du
 
 ```bash
 # 以字节显示（默认）
-baidu-pan-cli-rs quota
+baidu-pcs-cli-rs quota
 
 # 人类可读格式
-baidu-pan-cli-rs quota -H
+baidu-pcs-cli-rs quota -H
 
 # 以 GB 显示
-baidu-pan-cli-rs df -g
+baidu-pcs-cli-rs df -g
 
 # 以 MB 显示
-baidu-pan-cli-rs du -m
+baidu-pcs-cli-rs du -m
 ```

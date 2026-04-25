@@ -14,7 +14,7 @@ description: 将本地文件/目录增量备份到百度网盘，仅上传网盘
 ## 命令格式
 
 ```bash
-baidu-pan-cli-rs backup <本地路径> <远程路径> [--remove-source]
+baidu-pcs-cli-rs backup <本地路径> <远程路径> [--remove-source]
 ```
 
 ## 参数说明
@@ -41,8 +41,8 @@ baidu-pan-cli-rs backup <本地路径> <远程路径> [--remove-source]
 
 ```bash
 # 增量备份本地目录到网盘
-baidu-pan-cli-rs backup ~/documents /备份/documents
+baidu-pcs-cli-rs backup ~/documents /备份/documents
 
 # 备份并删除本地源（归档到云端）
-baidu-pan-cli-rs backup ~/旧项目 /归档/旧项目 --remove-source
+baidu-pcs-cli-rs backup ~/旧项目 /归档/旧项目 --remove-source
 ```

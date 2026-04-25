@@ -157,7 +157,7 @@
 
    3.1 添加依赖
 
-    - 在你的 Cargo.toml 中添加：baidu-pcs-rs-sdk = "0.1.0"
+    - 在你的 Cargo.toml 中添加：baidu-pcs-rs-sdk = "0.2.1"
 
    3.2 初始化与认证
 

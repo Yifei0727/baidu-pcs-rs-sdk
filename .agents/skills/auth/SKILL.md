@@ -1,6 +1,6 @@
 ---
 name: baidu-pan-auth
-description: 对百度网盘 CLI 工具（baidu-pan-cli-rs）执行 OAuth 设备码授权登录，或检查当前登录状态是否有效。当用户需要登录百度网盘、切换账号或授权认证时激活此技能。
+description: 对百度网盘 CLI 工具（baidu-pcs-cli-rs）执行 OAuth 设备码授权登录，或检查当前登录状态是否有效。当用户需要登录百度网盘、切换账号或授权认证时激活此技能。
 ---
 
 # 百度网盘认证授权
@@ -14,17 +14,17 @@ description: 对百度网盘 CLI 工具（baidu-pan-cli-rs）执行 OAuth 设备
 ## 命令格式
 
 ```bash
-baidu-pan-cli-rs auth [--config <配置文件路径>] [--dns <DNS服务器>]
+baidu-pcs-cli-rs auth [--config <配置文件路径>] [--dns <DNS服务器>]
 # 别名
-baidu-pan-cli-rs login
+baidu-pcs-cli-rs login
 ```
 
 ## 执行步骤
 
-1. 运行 `baidu-pan-cli-rs auth` 命令
+1. 运行 `baidu-pcs-cli-rs auth` 命令
 2. 终端会输出一个设备码和授权 URL（格式如 `https://openapi.baidu.com/device`）
 3. 在浏览器中打开该 URL，输入设备码，用百度账号完成扫码或登录授权
-4. 授权完成后，工具自动将 Token 写入配置文件（默认 `~/.config/baidu-pan-rs/config.toml`），权限为 0o600
+4. 授权完成后，工具自动将 Token 写入配置文件（默认 `~/.config/baidu-pcs-rs/config.toml`），权限为 0o600
 
 ## 参数说明
 
@@ -43,8 +43,8 @@ baidu-pan-cli-rs login
 
 ```bash
 # 标准登录
-baidu-pan-cli-rs auth
+baidu-pcs-cli-rs auth
 
 # 使用指定配置文件（多账号场景）
-baidu-pan-cli-rs auth --config ~/.config/baidu-pan-rs/work.toml
+baidu-pcs-cli-rs auth --config ~/.config/baidu-pcs-rs/work.toml
 ```

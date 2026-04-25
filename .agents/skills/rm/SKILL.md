@@ -14,10 +14,10 @@ description: 删除百度网盘中的一个或多个文件/目录，支持批量
 ## 命令格式
 
 ```bash
-baidu-pan-cli-rs rm <远程路径>... [-r]
+baidu-pcs-cli-rs rm <远程路径>... [-r]
 # 别名
-baidu-pan-cli-rs del <远程路径>...
-baidu-pan-cli-rs remove <远程路径>...
+baidu-pcs-cli-rs del <远程路径>...
+baidu-pcs-cli-rs remove <远程路径>...
 ```
 
 ## 参数说明
@@ -37,11 +37,11 @@ baidu-pan-cli-rs remove <远程路径>...
 
 ```bash
 # 删除单个文件
-baidu-pan-cli-rs rm /临时/old-file.txt
+baidu-pcs-cli-rs rm /临时/old-file.txt
 
 # 批量删除多个文件
-baidu-pan-cli-rs rm /临时/a.txt /临时/b.txt /临时/c.txt
+baidu-pcs-cli-rs rm /临时/a.txt /临时/b.txt /临时/c.txt
 
 # 递归删除目录
-baidu-pan-cli-rs rm /废弃项目 -r
+baidu-pcs-cli-rs rm /废弃项目 -r
 ```

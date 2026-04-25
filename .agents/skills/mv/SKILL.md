@@ -13,9 +13,9 @@ description: 在百度网盘内移动或重命名文件/目录（远程到远程
 ## 命令格式
 
 ```bash
-baidu-pan-cli-rs mv <源路径> <目标路径>
+baidu-pcs-cli-rs mv <源路径> <目标路径>
 # 别名
-baidu-pan-cli-rs rename <源路径> <目标路径>
+baidu-pcs-cli-rs rename <源路径> <目标路径>
 ```
 
 ## 参数说明
@@ -35,11 +35,11 @@ baidu-pan-cli-rs rename <源路径> <目标路径>
 
 ```bash
 # 移动文件
-baidu-pan-cli-rs mv /临时/report.pdf /归档/2024/report.pdf
+baidu-pcs-cli-rs mv /临时/report.pdf /归档/2024/report.pdf
 
 # 重命名文件
-baidu-pan-cli-rs rename /我的文件/旧名.txt /我的文件/新名.txt
+baidu-pcs-cli-rs rename /我的文件/旧名.txt /我的文件/新名.txt
 
 # 移动并重命名目录
-baidu-pan-cli-rs mv /项目/draft /项目/release
+baidu-pcs-cli-rs mv /项目/draft /项目/release
 ```
