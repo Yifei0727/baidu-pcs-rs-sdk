@@ -14,6 +14,19 @@ pub struct CommandLineArgs {
     /// 指定用于解析域名的 DNS 服务器地址（支持逗号分隔多个，格式如 8.8.8.8 或 8.8.8.8:53）
     #[arg(long, default_value = None)]
     pub dns: Option<String>,
+
+    /// 全局限速（上下行均为该值），例如 `100k` 表示 100KB/s
+    /// 可被 `--tx-band` / `--rx-band` 分别覆盖
+    #[arg(long, default_value = None)]
+    pub band: Option<String>,
+
+    /// 上传限速（最高），例如 `1M` 表示 1MB/s。未指定时回退到 `--band`
+    #[arg(long, default_value = None)]
+    pub tx_band: Option<String>,
+
+    /// 下行限速（最高），例如 `100M` 表示 100MB/s。未指定时回退到 `--band`
+    #[arg(long, default_value = None)]
+    pub rx_band: Option<String>,
 }
 
 #[derive(Subcommand)]

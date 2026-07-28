@@ -20,7 +20,7 @@ pub use crate::baidu_pcs_sdk::{
 };
 
 use crate::dns;
-use futures::TryStreamExt;
+use futures::{Stream, TryStreamExt};
 use tokio_util::io::ReaderStream;
 
 pub enum PcsUploadPolicy {
@@ -70,6 +70,10 @@ pub struct BaiduPcsClient {
     disk_quota: Option<PcsDiskQuota>,
     /// 指定的 DNS 服务器（逗号分隔），用于网络请求解析域名
     dns: Option<String>,
+    /// 上传速率限制器（None 表示不限速）
+    tx_limiter: Option<Arc<crate::baidu_pcs_sdk::rate_limit::RateLimiter>>,
+    /// 下载速率限制器（None 表示不限速）
+    rx_limiter: Option<Arc<crate::baidu_pcs_sdk::rate_limit::RateLimiter>>,
 }
 
 fn get_file_block_list(
@@ -221,7 +225,33 @@ impl BaiduPcsClient {
             user_info: None,
             disk_quota: None,
             dns: dns.map(|s| s.to_string()),
+            tx_limiter: None,
+            rx_limiter: None,
         }
+    }
+
+    /// 设置上传速率限制（字节/秒），0 表示不限速
+    pub fn with_tx_rate(mut self, bytes_per_sec: u64) -> Self {
+        if bytes_per_sec > 0 {
+            self.tx_limiter = Some(Arc::new(
+                crate::baidu_pcs_sdk::rate_limit::RateLimiter::new(bytes_per_sec),
+            ));
+        } else {
+            self.tx_limiter = None;
+        }
+        self
+    }
+
+    /// 设置下载速率限制（字节/秒），0 表示不限速
+    pub fn with_rx_rate(mut self, bytes_per_sec: u64) -> Self {
+        if bytes_per_sec > 0 {
+            self.rx_limiter = Some(Arc::new(
+                crate::baidu_pcs_sdk::rate_limit::RateLimiter::new(bytes_per_sec),
+            ));
+        } else {
+            self.rx_limiter = None;
+        }
+        self
     }
 
     pub fn ware(&mut self) -> Result<(), AppError> {
@@ -655,13 +685,13 @@ impl BaiduPcsClient {
         local_file: &str,
         progress_info: &ProgressInfo,
         progress_cb: Option<ProgressCallback>,
+        tx_limiter: Option<Arc<crate::baidu_pcs_sdk::rate_limit::RateLimiter>>,
     ) -> Result<reqwest::multipart::Form, AppError> {
         let mut file = tokio::fs::File::open(local_file).await?;
         file.seek(SeekFrom::Start(progress_info.uploaded_bytes))
             .await?;
 
         let limited = file.take(progress_info.current_part_bytes);
-        let reader_stream = ReaderStream::new(limited);
 
         let base_uploaded = progress_info.uploaded_bytes;
         let total_bytes = progress_info.total_bytes;
@@ -672,21 +702,43 @@ impl BaiduPcsClient {
         let sent_clone = sent.clone();
         let cb_opt = progress_cb.clone();
 
-        // 将 reader\_stream 包装为会在读取时触发回调的流
-        let stream = reader_stream.map_ok(move |chunk| {
-            let len = chunk.len() as u64;
-            let prev = sent_clone.fetch_add(len, std::sync::atomic::Ordering::Relaxed);
-            if let Some(cb) = cb_opt.as_ref() {
-                let mut cb_lock = cb.lock().unwrap();
-                (cb_lock)(ProgressInfo {
-                    total_bytes,
-                    uploaded_bytes: base_uploaded.saturating_add(prev),
-                    current_part,
-                    current_part_bytes: len,
-                });
-            }
-            chunk
-        });
+        // 将 reader_stream 包装为会在读取时触发回调的流；若配置了限速器则使用 RateLimitedStream
+        // 两个分支的具体类型不同，统一装箱为 trait object
+        let stream: Box<dyn Stream<Item = std::io::Result<bytes::Bytes>> + Send + Sync + Unpin> =
+            if let Some(limiter) = tx_limiter {
+                let rate_limited =
+                    crate::baidu_pcs_sdk::rate_limit::RateLimitedStream::new(limited, limiter);
+                Box::new(rate_limited.map_ok(move |chunk| {
+                    let len = chunk.len() as u64;
+                    let prev = sent_clone.fetch_add(len, std::sync::atomic::Ordering::Relaxed);
+                    if let Some(cb) = cb_opt.as_ref() {
+                        let mut cb_lock = cb.lock().unwrap();
+                        (cb_lock)(ProgressInfo {
+                            total_bytes,
+                            uploaded_bytes: base_uploaded.saturating_add(prev),
+                            current_part,
+                            current_part_bytes: len,
+                        });
+                    }
+                    chunk
+                }))
+            } else {
+                let reader_stream = ReaderStream::new(limited);
+                Box::new(reader_stream.map_ok(move |chunk| {
+                    let len = chunk.len() as u64;
+                    let prev = sent_clone.fetch_add(len, std::sync::atomic::Ordering::Relaxed);
+                    if let Some(cb) = cb_opt.as_ref() {
+                        let mut cb_lock = cb.lock().unwrap();
+                        (cb_lock)(ProgressInfo {
+                            total_bytes,
+                            uploaded_bytes: base_uploaded.saturating_add(prev),
+                            current_part,
+                            current_part_bytes: len,
+                        });
+                    }
+                    chunk
+                }))
+            };
 
         let body = Body::wrap_stream(stream);
         let file_name = format!("file_{}", current_part);
@@ -741,6 +793,7 @@ impl BaiduPcsClient {
                     current_part_bytes: file.metadata().unwrap().len(),
                 },
                 None,
+                self.tx_limiter.clone(),
             )
             .await
             .unwrap();
@@ -996,9 +1049,14 @@ impl BaiduPcsClient {
         }
 
         let fut = async {
-            let form = Self::create_form(local_file.path.as_str(), &progress_info, progress_cb)
-                .await
-                .unwrap();
+            let form = Self::create_form(
+                local_file.path.as_str(),
+                &progress_info,
+                progress_cb,
+                self.tx_limiter.clone(),
+            )
+            .await
+            .unwrap();
             self.client
                 .post(format!("{}{}", upload_server, PATH))
                 .query(&Query {
@@ -1435,6 +1493,10 @@ impl BaiduPcsClient {
                 .await
                 .map_err(|e| AppError::new(AppErrorType::Network, e.to_string().as_str(), None))?
             {
+                // 下载限速：在写入磁盘前等待令牌，避免拉取过快
+                if let Some(ref limiter) = self.rx_limiter {
+                    limiter.acquire(chunk.len() as u64).await;
+                }
                 file.write_all(&chunk).await?;
                 downloaded += chunk.len() as u64;
                 if let Some(ref cb) = progress {

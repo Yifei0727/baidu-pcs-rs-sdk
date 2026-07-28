@@ -12,6 +12,7 @@ use crate::auth::{device_auth_with_dns, first_app_use, renew_token};
 use crate::cli::{CommandLineArgs, Commands, CompletionArgs, SelfCommand};
 use crate::config::{config_load_or_init, get_config_file_path, save_or_update_config, BackupConfig, Config};
 use baidu_pcs_rs_sdk::baidu_pcs_sdk::pcs::BaiduPcsClient;
+use baidu_pcs_rs_sdk::baidu_pcs_sdk::rate_limit::parse_bandwidth;
 use baidu_pcs_rs_sdk::baidu_pcs_sdk::BaiduPcsApp;
 use byte_unit::UnitType;
 use chrono::Local;
@@ -490,6 +491,35 @@ fn dirs_home() -> std::path::PathBuf {
         .unwrap_or_else(|| std::path::PathBuf::from("."))
 }
 
+/// 解析限速参数：specific 优先于 general；两者均未提供则返回 None（不限速）
+fn resolve_rate(
+    specific: &Option<String>,
+    general: &Option<String>,
+    label: &str,
+) -> Option<u64> {
+    match specific.as_ref().or(general.as_ref()) {
+        Some(s) => match parse_bandwidth(s) {
+            Ok(n) => Some(n),
+            Err(e) => {
+                eprintln!("{} 参数无效: {}", label, e);
+                std::process::exit(1);
+            }
+        },
+        None => None,
+    }
+}
+
+/// 将字节/秒格式化为人类可读的速率字符串（1024 进制）
+fn format_rate(bytes_per_sec: u64) -> String {
+    if bytes_per_sec >= 1024 * 1024 {
+        format!("{:.2} MB/s", bytes_per_sec as f64 / (1024.0 * 1024.0))
+    } else if bytes_per_sec >= 1024 {
+        format!("{:.2} KB/s", bytes_per_sec as f64 / 1024.0)
+    } else {
+        format!("{} B/s", bytes_per_sec)
+    }
+}
+
 fn main() {
     let cli = CommandLineArgs::parse();
     // 日志文件初始化
@@ -568,11 +598,23 @@ fn main() {
         renew_token(&mut config, cli.config.as_ref(), dns_opt_owned.as_deref());
         info!("Access token 刷新成功");
     }
+    // 解析限速参数：--tx-band / --rx-band 优先于 --band
+    let tx_rate = resolve_rate(&cli.tx_band, &cli.band, "--tx-band/--band");
+    let rx_rate = resolve_rate(&cli.rx_band, &cli.band, "--rx-band/--band");
+    if let Some(r) = tx_rate {
+        println!("上传限速: {}", format_rate(r));
+    }
+    if let Some(r) = rx_rate {
+        println!("下行限速: {}", format_rate(r));
+    }
+
     let mut client: BaiduPcsClient = BaiduPcsClient::new_with_dns(
         config.baidu_pan.access_token.as_str(),
         BAIDU_PCS_APP,
         config.dns.as_deref().or(cli.dns.as_deref()),
-    );
+    )
+    .with_tx_rate(tx_rate.unwrap_or(0))
+    .with_rx_rate(rx_rate.unwrap_or(0));
     match client.ware() {
         Ok(()) => {}
         Err(e) => {

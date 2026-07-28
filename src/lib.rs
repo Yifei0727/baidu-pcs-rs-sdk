@@ -5,6 +5,7 @@ pub mod baidu_pcs_sdk {
     use std::error::Error;
 
     pub mod pcs;
+    pub mod rate_limit;
 
     #[path = "pcs_device_auth_impl.rs"]
     pub mod pcs_device_auth;
