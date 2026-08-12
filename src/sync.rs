@@ -1,6 +1,7 @@
 use crate::cli::{BackupArgs, RxArgs, TxArgs, WgetArgs};
 use crate::config::Config;
 use baidu_pcs_rs_sdk::baidu_pcs_sdk::pcs::{BaiduPcsClient, PcsUploadPolicy};
+use baidu_pcs_rs_sdk::baidu_pcs_sdk::rate_limit::{parse_bandwidth, parse_duration};
 use baidu_pcs_rs_sdk::baidu_pcs_sdk::{PcsFileItem, PcsFileUploadResult, ShareFileInfo};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{error, info};
@@ -264,7 +265,10 @@ fn list_remote_files_recursive(client: &BaiduPcsClient, dir: &str) -> HashSet<St
 }
 
 /// backup 模式：扫描本地文件，跳过远程已存在的，仅上传缺失的
-/// daemon 模式下持续监控，每隔一段时间重新扫描
+/// daemon 模式下以分批方式工作：每次突发上传一批文件，随后静默
+/// `backup_interval` 秒，再开始下一轮，从而保证网络上传有间隔（规避
+/// 部分网络对"持续低流量上传"的拦截）。每轮的上限由 `backup_batch_files`
+/// / `backup_batch_bytes` 控制。
 pub(crate) fn run_backup_task(
     args: &BackupArgs,
     local_root: &str,
@@ -273,22 +277,65 @@ pub(crate) fn run_backup_task(
 ) {
     let remove_source = args.remove_source;
     let daemon = args.daemon;
+
+    // 解析间隔上传参数
+    let interval_secs = args
+        .backup_interval
+        .as_deref()
+        .and_then(|s| parse_duration(s).ok())
+        .unwrap_or(60);
+    let max_files = args.backup_batch_files;
+    let max_bytes = args
+        .backup_batch_bytes
+        .as_deref()
+        .and_then(|s| parse_bandwidth(s).ok());
+
+    if daemon {
+        info!(
+            "备份守护模式（分批上传）：静默间隔 {} 秒，单轮上限 文件={:?} 字节={:?}",
+            interval_secs, max_files, max_bytes
+        );
+    }
+
     let local_root = local_root.to_string();
     let remote_root = remote_root.to_string();
 
     loop {
-        do_backup(&local_root, &remote_root, remove_source, client);
+        let stats = do_backup(
+            &local_root,
+            &remote_root,
+            remove_source,
+            client,
+            max_files,
+            max_bytes,
+        );
 
         if !daemon {
             break;
         }
-        let interval = std::time::Duration::from_secs(60);
-        info!("守护模式: 等待 {} 秒后再次扫描...", interval.as_secs());
-        std::thread::sleep(interval);
+        info!(
+            "备份本轮结束: 上传 {} 个文件 / {} 字节，静默 {} 秒后进行下一轮",
+            stats.uploaded, stats.bytes, interval_secs
+        );
+        std::thread::sleep(std::time::Duration::from_secs(interval_secs));
     }
 }
 
-fn do_backup(local_root: &str, remote_root: &str, remove_source: bool, client: &BaiduPcsClient) {
+/// 单次上传会话的上传统计
+#[derive(Default)]
+struct BackupSessionStats {
+    uploaded: usize,
+    bytes: u64,
+}
+
+fn do_backup(
+    local_root: &str,
+    remote_root: &str,
+    remove_source: bool,
+    client: &BaiduPcsClient,
+    max_files: Option<u64>,
+    max_bytes: Option<u64>,
+) -> BackupSessionStats {
 
     let local_path = PathBuf::from(local_root)
         .canonicalize()
@@ -302,7 +349,7 @@ fn do_backup(local_root: &str, remote_root: &str, remove_source: bool, client: &
     let scanned = scan_files_recursive(local_root, vec![]);
     if scanned.is_empty() {
         println!("没有找到需要备份的本地文件");
-        return;
+        return BackupSessionStats::default();
     }
 
     // 列出远程目录已有文件
@@ -311,8 +358,23 @@ fn do_backup(local_root: &str, remote_root: &str, remove_source: bool, client: &
 
     let mut skipped = 0usize;
     let mut uploaded = 0usize;
+    let mut session_bytes: u64 = 0;
 
     for file in &scanned {
+        // 检查单轮上限：文件数 / 流量。达到上限即结束本轮上传，剩余文件留待下一轮
+        if let Some(mf) = max_files {
+            if uploaded as u64 >= mf {
+                info!("已达单轮最大文件数 {}，结束本轮上传", mf);
+                break;
+            }
+        }
+        if let Some(mb) = max_bytes {
+            if session_bytes >= mb {
+                info!("已达单轮最大流量 {} 字节，结束本轮上传", mb);
+                break;
+            }
+        }
+
         let file_path = PathBuf::from(file);
         let relative = file_path.strip_prefix(&local_base).unwrap_or(&file_path);
         let remote_path = PathBuf::from(remote_root)
@@ -355,6 +417,7 @@ fn do_backup(local_root: &str, remote_root: &str, remove_source: bool, client: &
             Ok(_) => {
                 pb.finish_with_message("上传完成");
                 uploaded += 1;
+                session_bytes += file_size;
                 if remove_source {
                     if let Err(e) = fs::remove_file(file) {
                         error!("删除本地文件失败: {} - {}", file, e);
@@ -376,6 +439,10 @@ fn do_backup(local_root: &str, remote_root: &str, remove_source: bool, client: &
         uploaded,
         skipped
     );
+    BackupSessionStats {
+        uploaded,
+        bytes: session_bytes,
+    }
 }
 
 /// 从百度网盘分享链接中提取 short_url 和提取码

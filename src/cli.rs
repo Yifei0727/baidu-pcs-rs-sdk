@@ -166,7 +166,7 @@ pub struct RxArgs {
     pub recursive: bool,
 }
 
-/// backup [local] [remote] [--daemon] [--rm]
+/// backup [local] [remote] [--daemon] [--rm] [--backup-interval 1h] [--backup-batch-files 1] [--backup-batch-bytes 1G]
 #[derive(Args)]
 pub struct BackupArgs {
     /// 本地源目录/文件（可选，未提供时从配置文件读取）
@@ -179,6 +179,18 @@ pub struct BackupArgs {
     /// 备份成功后删除本地源文件
     #[arg(long = "rm", action = ArgAction::SetTrue)]
     pub remove_source: bool,
+    /// 两次上传会话之间的最小静默间隔，保证网络上传有间隔。
+    /// 支持 `1h` / `30m` / `3600s` / `1h30m` 等格式，默认 `60` 秒（兼容旧版守护行为）
+    #[arg(long = "backup-interval", default_value = "60")]
+    pub backup_interval: Option<String>,
+    /// 单次上传会话最多上传文件数，例如 `1` 表示每次只传 1 个文件。
+    /// 未指定则不限制
+    #[arg(long = "backup-batch-files", default_value = None)]
+    pub backup_batch_files: Option<u64>,
+    /// 单次上传会话最大流量，例如 `1G` / `500M`。
+    /// 达到上限即结束本次会话并进入静默间隔。未指定则不限制
+    #[arg(long = "backup-batch-bytes", default_value = None)]
+    pub backup_batch_bytes: Option<String>,
 }
 
 #[derive(Args)]

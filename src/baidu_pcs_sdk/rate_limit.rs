@@ -132,6 +132,75 @@ pub fn parse_bandwidth(s: &str) -> Result<u64, String> {
     Ok(bytes)
 }
 
+/// 解析时间间隔字符串为秒数
+///
+/// 支持格式（大小写不敏感，可多段累加）：
+/// - `90` / `90s` -> 90 秒
+/// - `30m` -> 30 分钟 = 1800 秒
+/// - `1h` -> 1 小时 = 3600 秒
+/// - `1h30m` -> 1 小时 30 分钟 = 5400 秒
+/// - `1.5h` -> 1.5 小时 = 5400 秒
+/// 单位：`s`(秒) `m`(分) `h`(时) `d`(天)；无单位默认为秒
+pub fn parse_duration(s: &str) -> Result<u64, String> {
+    let s = s.trim();
+    if s.is_empty() {
+        return Err("时间间隔字符串为空".to_string());
+    }
+
+    let chars: Vec<char> = s.chars().collect();
+    let n = chars.len();
+    let mut total_secs: u64 = 0;
+    let mut has_token = false;
+    let mut i = 0;
+
+    while i < n {
+        // 跳过段间空白（支持 `1h 30m` 这类带空格的写法）
+        while i < n && chars[i].is_whitespace() {
+            i += 1;
+        }
+        // 读取数字部分
+        let num_start = i;
+        while i < n && (chars[i].is_ascii_digit() || chars[i] == '.') {
+            i += 1;
+        }
+        if i == num_start {
+            return Err(format!("时间间隔格式无效（缺少数字）: {}", s));
+        }
+        let num_str: String = chars[num_start..i].iter().collect();
+        let num: f64 = num_str
+            .parse()
+            .map_err(|_| format!("无效的数字: {}", num_str))?;
+
+        // 读取单位部分（字母）
+        let unit_start = i;
+        while i < n && chars[i].is_ascii_alphabetic() {
+            i += 1;
+        }
+        let raw_unit: String = chars[unit_start..i].iter().collect();
+        let unit = if raw_unit.is_empty() {
+            "s".to_string()
+        } else {
+            raw_unit.to_lowercase()
+        };
+
+        let mult: u64 = match unit.as_str() {
+            "s" | "sec" | "secs" | "second" | "seconds" => 1,
+            "m" | "min" | "mins" | "minute" | "minutes" => 60,
+            "h" | "hr" | "hrs" | "hour" | "hours" => 3600,
+            "d" | "day" | "days" => 86400,
+            other => return Err(format!("未知的时间单位: {}", other)),
+        };
+
+        total_secs = total_secs.saturating_add((num * mult as f64) as u64);
+        has_token = true;
+    }
+
+    if !has_token {
+        return Err(format!("时间间隔格式无效: {}", s));
+    }
+    Ok(total_secs)
+}
+
 /// 读取缓冲区大小
 const STREAM_CHUNK_SIZE: usize = 8 * 1024;
 
@@ -268,5 +337,27 @@ mod tests {
         assert!(sleep.is_some());
         let sleep = sleep.unwrap();
         assert!(sleep.as_secs_f64() > 0.0);
+    }
+
+    #[test]
+    fn test_parse_duration() {
+        assert_eq!(parse_duration("90").unwrap(), 90);
+        assert_eq!(parse_duration("90s").unwrap(), 90);
+        assert_eq!(parse_duration("30m").unwrap(), 1800);
+        assert_eq!(parse_duration("1h").unwrap(), 3600);
+        assert_eq!(parse_duration("1h30m").unwrap(), 5400);
+        assert_eq!(parse_duration("1.5h").unwrap(), 5400);
+        assert_eq!(parse_duration("2d").unwrap(), 172800);
+        assert_eq!(parse_duration(" 1h ").unwrap(), 3600);
+        assert_eq!(parse_duration("1h 30m").unwrap(), 5400);
+        assert_eq!(parse_duration("1d12h").unwrap(), 129600);
+    }
+
+    #[test]
+    fn test_parse_duration_errors() {
+        assert!(parse_duration("").is_err());
+        assert!(parse_duration("abc").is_err());
+        assert!(parse_duration("1x").is_err());
+        assert!(parse_duration("h").is_err());
     }
 }
