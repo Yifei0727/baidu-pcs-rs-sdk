@@ -413,13 +413,22 @@ pub(crate) fn run_backup_task(
             ascending,
         );
 
-        if !daemon {
+        // 非守护模式：若本轮没有新上传（全部已上传完成），则结束；
+        // 否则暂停后继续下一轮，直到所有文件都上传完毕（避免只传满一批就退出）
+        if !daemon && stats.uploaded == 0 {
             break;
         }
-        info!(
-            "备份本轮结束: 上传 {} 个文件 / {} 字节，静默 {} 秒后进行下一轮",
-            stats.uploaded, stats.bytes, interval_secs
-        );
+        if daemon {
+            info!(
+                "备份本轮结束: 上传 {} 个文件 / {} 字节，静默 {} 秒后进行下一轮",
+                stats.uploaded, stats.bytes, interval_secs
+            );
+        } else {
+            info!(
+                "备份本轮结束: 上传 {} 个文件 / {} 字节，静默 {} 秒后继续（剩余文件待传）",
+                stats.uploaded, stats.bytes, interval_secs
+            );
+        }
         std::thread::sleep(std::time::Duration::from_secs(interval_secs));
     }
 }

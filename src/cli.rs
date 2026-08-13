@@ -66,13 +66,13 @@ pub enum Commands {
     #[command(alias = "ver")]
     Version,
     /// 管理本应用自身
-    #[command(alias = "self")]
-    AppSelf(SelfArgs),
+    #[command(name = "self", alias = "app-self")]
+    SelfCmd(SelfArgs),
     /// 生成 shell 补全脚本
     Completion(CompletionArgs),
 }
 
-/// app self 子命令
+/// self 子命令
 #[derive(Args)]
 pub struct SelfArgs {
     #[command(subcommand)]

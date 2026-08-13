@@ -34,8 +34,20 @@ pub(crate) const BAIDU_PCS_APP: BaiduPcsApp = BaiduPcsApp {
 fn current_target() -> &'static str {
     match (env::consts::OS, env::consts::ARCH) {
         ("windows", "x86_64") => "x86_64-pc-windows-msvc",
-        ("linux", "x86_64") => "x86_64-unknown-linux-gnu",
-        ("linux", "aarch64") => "aarch64-unknown-linux-gnu",
+        ("linux", "x86_64") => {
+            if cfg!(target_env = "musl") {
+                "x86_64-unknown-linux-musl"
+            } else {
+                "x86_64-unknown-linux-gnu"
+            }
+        }
+        ("linux", "aarch64") => {
+            if cfg!(target_env = "musl") {
+                "aarch64-unknown-linux-musl"
+            } else {
+                "aarch64-unknown-linux-gnu"
+            }
+        }
         ("macos", "aarch64") => "aarch64-apple-darwin",
         ("macos", "x86_64") => "x86_64-apple-darwin",
         _ => "unknown",
@@ -567,7 +579,7 @@ fn main() {
     }
 
     // self 子命令无需配置和认证
-    if let Some(Commands::AppSelf(args)) = &cli.command {
+    if let Some(Commands::SelfCmd(args)) = &cli.command {
         match &args.command {
             SelfCommand::Config => {
                 println!("{}", get_config_file_path(cli.config.as_ref()).display());
@@ -802,7 +814,7 @@ fn main() {
             }
         }
         Some(Commands::Version) => unreachable!("已在前面提前处理"),
-        Some(Commands::AppSelf(_)) => unreachable!("已在前面提前处理"),
+        Some(Commands::SelfCmd(_)) => unreachable!("已在前面提前处理"),
         Some(Commands::Completion(_)) => unreachable!("已在前面提前处理"),
         Some(Commands::Quota(args)) => match client.get_user_quota(true, true) {
             Ok(quota) => {

@@ -71,7 +71,7 @@
 
     - 首次运行会提示进行设备码授权：执行 baidu-pcs-cli-rs auth，按提示在浏览器打开授权链接并输入验证码。
     - 配置文件位置（Linux 默认）：~/.config/baidu-pcs-rs/config.toml
-    - 可通过 --config 指定自定义路径，或使用 `app self config` 查看当前配置文件路径。
+    - 可通过 --config 指定自定义路径，或使用 `self config` 查看当前配置文件路径。
     - 日志：写入系统临时目录下的 baidu-pcs-rs/logs/{时间-进程号}.log。
 
 2.3 命令与参数
@@ -116,7 +116,7 @@
             - -p/--password 分享提取码
             - -o/--output 本地保存目录
         - `version`（别名: `ver`）: 显示版本信息
-        - `app self`（别名: `self`）: 管理本应用
+        - `self`（别名: `app-self`）: 管理本应用
             - `config`（别名: `cfg`）: 显示当前配置文件路径
             - `update`（别名: `up`）: 检查更新
                 - --dry-run 只检查是否有新版本，不执行更新
