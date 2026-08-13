@@ -166,7 +166,7 @@ pub struct RxArgs {
     pub recursive: bool,
 }
 
-/// backup [local] [remote] [--daemon] [--rm] [--backup-interval 1h] [--backup-batch-files 1] [--backup-batch-bytes 1G]
+/// backup [local] [remote] [--daemon] [--rm] [--backup-interval 1h] [--backup-batch-files 1] [--backup-batch-bytes 1G] [--by-name|--by-modify] [--asc|--desc]
 #[derive(Args)]
 pub struct BackupArgs {
     /// 本地源目录/文件（可选，未提供时从配置文件读取）
@@ -191,6 +191,19 @@ pub struct BackupArgs {
     /// 达到上限即结束本次会话并进入静默间隔。未指定则不限制
     #[arg(long = "backup-batch-bytes", default_value = None)]
     pub backup_batch_bytes: Option<String>,
+    /// 按文件名排序（默认）。规则：同级中文件永远排在子目录之前（不受 asc/desc 影响，即浅目录文件优先），
+    /// 同级名称才受 asc/desc 影响；归类顺序：数字(0-9) < 小写(a-z) < 大写(A-Z)
+    #[arg(long = "by-name", action = ArgAction::SetTrue)]
+    pub by_name: bool,
+    /// 按文件修改时间排序（默认按文件名）
+    #[arg(long = "by-modify", action = ArgAction::SetTrue)]
+    pub by_modify: bool,
+    /// 升序（默认）：by-name 从 0-9a-z 到 Z，by-modify 从最近到最远
+    #[arg(long = "asc", action = ArgAction::SetTrue)]
+    pub asc: bool,
+    /// 降序：by-name 从 Z 到 z-a0-9，by-modify 从最远到最近
+    #[arg(long = "desc", action = ArgAction::SetTrue)]
+    pub desc: bool,
 }
 
 #[derive(Args)]

@@ -57,6 +57,103 @@ pub fn scan_files_recursive(dir: &str, mut files: Vec<String>) -> Vec<String> {
     files
 }
 
+/// 备份文件排序：在扫描之后、上传之前对文件列表排序，保证备份顺序确定。
+///
+/// - `by_modify = false`：按相对路径名排序，归类顺序为 数字(0-9) < 小写(a-z) < 大写(A-Z) < 其它。
+/// - `by_modify = true`：按文件修改时间（mtime）排序。
+/// - `ascending = true`（默认）：by-name 从 0-9a-z 到 Z；by-modify 从最近到最远（新→旧）。
+/// - `ascending = false`：by-name 反向；by-modify 从最远到最近（旧→新）。
+pub(crate) fn sort_backup_files(
+    files: &mut Vec<String>,
+    local_base: &Path,
+    by_modify: bool,
+    ascending: bool,
+) {
+    if by_modify {
+        let mut with_time: Vec<(u64, String)> = files
+            .iter()
+            .map(|p| {
+                let mtime = fs::metadata(p)
+                    .and_then(|m| m.modified())
+                    .map(|t| {
+                        t.duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0)
+                    })
+                    .unwrap_or(0);
+                (mtime, p.clone())
+            })
+            .collect();
+        // asc = 最近到最远（mtime 降序）；desc = 最远到最近（mtime 升序）
+        with_time.sort_by(|a, b| {
+            if ascending {
+                b.0.cmp(&a.0)
+            } else {
+                a.0.cmp(&b.0)
+            }
+        });
+        *files = with_time.into_iter().map(|(_, p)| p).collect();
+    } else {
+        // 按相对路径的「目录层级」排序：
+        // 1) 文件优先于目录 —— 同一级上若 A 已是最终文件（终止）而 B 还要继续进入子目录，
+        //    则 A 永远在前，不受 asc/desc 影响（即永远优先浅目录的文件）。
+        // 2) 同级名称比较才受 asc/desc 影响（归类 数字<小写<大写）。
+        let mut with_key: Vec<(Vec<Vec<(u8, char)>>, String)> = files
+            .iter()
+            .map(|p| {
+                let rel = Path::new(p)
+                    .strip_prefix(local_base)
+                    .map(|x| x.to_string_lossy().to_string())
+                    .unwrap_or_else(|_| p.to_string());
+                let comps: Vec<Vec<(u8, char)>> = rel
+                    .split('/')
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.chars().map(classify_char).collect())
+                    .collect();
+                (comps, p.clone())
+            })
+            .collect();
+        with_key.sort_by(|a, b| {
+            let ca = &a.0;
+            let cb = &b.0;
+            let n = ca.len().min(cb.len());
+            for i in 0..n {
+                let a_terminal = i + 1 == ca.len();
+                let b_terminal = i + 1 == cb.len();
+                // 文件（终止）优先于目录（继续），不受 asc/desc 影响
+                if a_terminal && !b_terminal {
+                    return std::cmp::Ordering::Less;
+                }
+                if !a_terminal && b_terminal {
+                    return std::cmp::Ordering::Greater;
+                }
+                // 同级名称比较，受 asc/desc 影响
+                let ord = ca[i].cmp(&cb[i]);
+                let ord = if ascending { ord } else { ord.reverse() };
+                if ord != std::cmp::Ordering::Equal {
+                    return ord;
+                }
+            }
+            // 一方是另一方的祖先目录：更浅者优先
+            ca.len().cmp(&cb.len())
+        });
+        *files = with_key.into_iter().map(|(_, p)| p).collect();
+    }
+}
+
+/// 字符归类键：数字 0、小写 1、大写 2、其它 3，类内按字符自然顺序。
+fn classify_char(c: char) -> (u8, char) {
+    if c.is_ascii_digit() {
+        (0, c)
+    } else if c.is_ascii_lowercase() {
+        (1, c)
+    } else if c.is_ascii_uppercase() {
+        (2, c)
+    } else {
+        (3, c)
+    }
+}
+
 pub fn task_scheduler<F>(dir: &str, remote_dir: &str, include_prefix: bool, consumer: F)
 where
     F: Fn(String, String) -> Result<PcsFileUploadResult, Box<dyn Error>>,
@@ -290,6 +387,10 @@ pub(crate) fn run_backup_task(
         .as_deref()
         .and_then(|s| parse_bandwidth(s).ok());
 
+    // 解析排序参数：--by-modify 覆盖 --by-name（默认按名）；--desc 覆盖 --asc（默认升序）
+    let by_modify = args.by_modify;
+    let ascending = !args.desc;
+
     if daemon {
         info!(
             "备份守护模式（分批上传）：静默间隔 {} 秒，单轮上限 文件={:?} 字节={:?}",
@@ -308,6 +409,8 @@ pub(crate) fn run_backup_task(
             client,
             max_files,
             max_bytes,
+            by_modify,
+            ascending,
         );
 
         if !daemon {
@@ -335,6 +438,8 @@ fn do_backup(
     client: &BaiduPcsClient,
     max_files: Option<u64>,
     max_bytes: Option<u64>,
+    by_modify: bool,
+    ascending: bool,
 ) -> BackupSessionStats {
 
     let local_path = PathBuf::from(local_root)
@@ -346,11 +451,14 @@ fn do_backup(
         local_path.parent().unwrap().to_path_buf()
     };
 
-    let scanned = scan_files_recursive(local_root, vec![]);
+    let mut scanned = scan_files_recursive(local_root, vec![]);
     if scanned.is_empty() {
         println!("没有找到需要备份的本地文件");
         return BackupSessionStats::default();
     }
+
+    // 按指定规则对扫描结果排序，保证备份顺序确定
+    sort_backup_files(&mut scanned, &local_base, by_modify, ascending);
 
     // 列出远程目录已有文件
     println!("正在检查远程目录 {} ...", remote_root);
@@ -671,11 +779,158 @@ fn download_share_files(
 #[cfg(test)]
 mod tests {
     use crate::sync::scan_files_recursive;
+    use crate::sync::sort_backup_files;
+    use std::path::Path;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     #[test]
     fn test_scan_files_recursive() {
         let files = scan_files_recursive(".", vec![]);
         println!("{:?}", files);
         assert!(!files.is_empty());
+    }
+
+    fn rel_sort(input: &[&str], by_modify: bool, ascending: bool) -> Vec<String> {
+        let mut files: Vec<String> = input.iter().map(|s| s.to_string()).collect();
+        sort_backup_files(&mut files, Path::new("/base"), by_modify, ascending);
+        files
+    }
+
+    #[test]
+    fn test_sort_by_name_asc() {
+        // 数字 < 小写 < 大写；同目录内按路径排序（a/1 在 b/2 之前）
+        let out = rel_sort(
+            &[
+                "/base/b/2/aaaa.file",
+                "/base/a/1/1112.file",
+                "/base/a/1/1111.file",
+            ],
+            false,
+            true,
+        );
+        assert_eq!(
+            out,
+            vec![
+                "/base/a/1/1111.file".to_string(),
+                "/base/a/1/1112.file".to_string(),
+                "/base/b/2/aaaa.file".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_sort_by_name_desc() {
+        let out = rel_sort(
+            &[
+                "/base/a/1/1111.file",
+                "/base/b/2/aaaa.file",
+                "/base/a/1/1112.file",
+            ],
+            false,
+            false,
+        );
+        // 反向：大写(无) -> 小写(无) -> 数字；整体逆序
+        assert_eq!(
+            out,
+            vec![
+                "/base/b/2/aaaa.file".to_string(),
+                "/base/a/1/1112.file".to_string(),
+                "/base/a/1/1111.file".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_sort_by_name_case_order() {
+        // 小写排在大写之前：z.file < Z.file
+        let out = rel_sort(&["/base/Z.file", "/base/z.file"], false, true);
+        assert_eq!(out, vec!["/base/z.file".to_string(), "/base/Z.file".to_string()]);
+    }
+
+    #[test]
+    fn test_sort_by_name_shallow_first() {
+        // 文件优先于子目录：浅目录 a/top.txt 排在深目录 a/deep/* 之前
+        let out = rel_sort(
+            &[
+                "/base/a/deep/x.txt",
+                "/base/a/top.txt",
+                "/base/a/deep/y.txt",
+            ],
+            false,
+            true,
+        );
+        assert_eq!(
+            out,
+            vec![
+                "/base/a/top.txt".to_string(),
+                "/base/a/deep/x.txt".to_string(),
+                "/base/a/deep/y.txt".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_sort_by_name_shallow_first_not_affected_by_desc() {
+        // 文件优先于子目录的规则不受 --desc 影响：a/top.txt 仍最前
+        let out = rel_sort(
+            &[
+                "/base/a/deep/x.txt",
+                "/base/a/top.txt",
+                "/base/a/deep/y.txt",
+            ],
+            false,
+            false,
+        );
+        assert_eq!(
+            out,
+            vec![
+                "/base/a/top.txt".to_string(),
+                "/base/a/deep/y.txt".to_string(),
+                "/base/a/deep/x.txt".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_sort_by_modify() {
+        let dir = std::env::temp_dir().join("baidu_pcs_sort_test");
+        let _ = std::fs::create_dir_all(&dir);
+        let old = dir.join("old.file");
+        let new = dir.join("new.file");
+        std::fs::write(&old, b"x").unwrap();
+        std::fs::write(&new, b"x").unwrap();
+        let t0 = UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        let t1 = t0 + Duration::from_secs(3600);
+        // 默认 mtime 由写入顺序决定，这里显式设置以保证确定性
+        file_set_modified(&old, t0);
+        file_set_modified(&new, t1);
+
+        // asc：最近到最远（新 -> 旧）
+        let out_asc = rel_sort(
+            &[old.to_str().unwrap(), new.to_str().unwrap()],
+            true,
+            true,
+        );
+        assert_eq!(out_asc[0], new.to_str().unwrap());
+        assert_eq!(out_asc[1], old.to_str().unwrap());
+
+        // desc：最远到最近（旧 -> 新）
+        let out_desc = rel_sort(
+            &[old.to_str().unwrap(), new.to_str().unwrap()],
+            true,
+            false,
+        );
+        assert_eq!(out_desc[0], old.to_str().unwrap());
+        assert_eq!(out_desc[1], new.to_str().unwrap());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn file_set_modified(path: &Path, t: SystemTime) {
+        // set_modified 可能不受部分文件系统支持，失败时忽略（CI 环境）
+        let _ = std::fs::OpenOptions::new()
+            .write(true)
+            .open(path)
+            .and_then(|f| f.set_modified(t));
     }
 }
