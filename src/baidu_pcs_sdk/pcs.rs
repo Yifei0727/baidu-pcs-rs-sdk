@@ -15,8 +15,8 @@ use crate::baidu_pcs_sdk::pcs::HttpMethod::{Get, Post};
 pub use crate::baidu_pcs_sdk::{
     AppError, AppErrorType, BaiduPcsApp, PcsApiError, PcsCreateFolderResult, PcsDiskQuota,
     PcsFileListResult, PcsFileMetaResult, PcsFileSearchResult, PcsFileSlicePrepareResult,
-    PcsFileUploadResult, PcsUserInfo, ShareDownloadResult, ShareFileListResult, ShareVerifyResult,
-    UploadServerResult,
+    PcsFileItem, PcsFileUploadResult, PcsUserInfo, ShareDownloadResult, ShareFileListResult,
+    ShareVerifyResult, UploadServerResult,
 };
 
 use crate::dns;
@@ -639,6 +639,19 @@ impl BaiduPcsClient {
     /// 列出目录文件
     /// 本接口用于列出指定目录下的文件和子目录信息。 https://pan.baidu.com/union/doc/mksg0s9l4
     pub fn list_dir(&self, path: &str) -> Result<PcsFileListResult, AppError> {
+        self.list_dir_paged(path, None, None)
+    }
+
+    /// 列出目录文件（分页版）
+    /// 本接口用于列出指定目录下的文件和子目录信息。 https://pan.baidu.com/union/doc/mksg0s9l4
+    /// - `start`: 起始位置，从 0 开始；None 表示 0
+    /// - `limit`: 查询数目；None 表示使用 API 默认值 1000，建议最大不超过 1000
+    pub fn list_dir_paged(
+        &self,
+        path: &str,
+        start: Option<u64>,
+        limit: Option<u64>,
+    ) -> Result<PcsFileListResult, AppError> {
         const PATH: &str = "/rest/2.0/xpan/file";
         #[derive(Serialize)]
         struct Params<'a> {
@@ -673,13 +686,29 @@ impl BaiduPcsClient {
             dir: path,
             order: None,
             desc: None,
-            start: None,
-            limit: None,
+            start,
+            limit,
             web: None,
             folder: None,
             show_empty: None,
         };
         self.request(Get, PATH, params, None::<()>)
+    }
+
+    /// 返回一个自动翻页的目录迭代器，逐条遍历目录下所有文件
+    /// - `limit`: 每页条数，None 表示 1000（API 默认值，建议最大不超过 1000）
+    ///
+    /// 注意：接口响应中不含 has_more/总数 信息，翻页结束以"返回条数不足一页"判断；
+    /// 若遍历期间目录内容发生变化，可能出现漏读或重复。
+    pub fn list_dir_iter(&self, path: &str, limit: Option<u64>) -> PcsDirPager<'_> {
+        PcsDirPager {
+            client: self,
+            dir: path.to_string(),
+            limit: limit.unwrap_or(1000).max(1),
+            start: 0,
+            buffer: Vec::new().into_iter(),
+            exhausted: false,
+        }
     }
     async fn create_form(
         local_file: &str,
@@ -1694,6 +1723,67 @@ impl BaiduPcsClient {
     }
 }
 
+/// 目录遍历迭代器：自动翻页，遍历完目录下全部文件
+///
+/// 由 [`BaiduPcsClient::list_dir_iter`] 创建。内部按 `limit`（默认 1000）分页拉取，
+/// 以"返回条数不足一页"判定遍历结束；迭代中途请求出错时静默终止。
+pub struct PcsDirPager<'a> {
+    client: &'a BaiduPcsClient,
+    dir: String,
+    limit: u64,
+    start: u64,
+    /// 当前页缓冲
+    buffer: std::vec::IntoIter<PcsFileItem>,
+    /// 是否已确认无更多数据
+    exhausted: bool,
+}
+
+impl Iterator for PcsDirPager<'_> {
+    type Item = PcsFileItem;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(item) = self.buffer.next() {
+                return Some(item);
+            }
+            if self.exhausted {
+                return None;
+            }
+            match self
+                .client
+                .list_dir_paged(&self.dir, Some(self.start), Some(self.limit))
+            {
+                Ok(page) => {
+                    let list = page.list;
+                    if list.is_empty() {
+                        self.exhausted = true;
+                        return None;
+                    }
+                    let fetched = list.len() as u64;
+                    self.start += fetched;
+                    // 不足一页：这是最后一批，消费完该页后结束
+                    if fetched < self.limit {
+                        self.exhausted = true;
+                    }
+                    self.buffer = list.into_iter();
+                }
+                Err(_) => {
+                    // 出错即终止迭代
+                    self.exhausted = true;
+                    return None;
+                }
+            }
+        }
+    }
+}
+
+impl<'a> PcsDirPager<'a> {
+    /// 取回客户端引用（迭代完成或中途放弃时使用）
+    pub fn into_inner(self) -> &'a BaiduPcsClient {
+        self.client
+    }
+}
+
 /// 进度回调类型别名
 pub type ProgressCallback = Arc<Mutex<dyn FnMut(ProgressInfo) + Send>>;
 
@@ -1771,6 +1861,39 @@ mod test {
         } else {
             println!("result: {:?}", result.unwrap().list);
         }
+    }
+
+    #[test]
+    fn test_list_dir_paged() {
+        let client = BaiduPcsClient::new(
+            "126.0a86437862dffb06d5d8773322fcb3d9.YCAJdSL-cWFVMa31pQgKFG9h5kDg8QV4nMnd7mT.t5qH1Q",
+            BAIDU_PCS_APP,
+        );
+        let result = client.list_dir_paged("/我的资源", Some(0), Some(10));
+        if result.is_err() {
+            println!("error: {:?}", result.err().unwrap());
+            assert!(false);
+        } else {
+            println!("result: {:?}", result.unwrap().list);
+        }
+    }
+
+    #[test]
+    fn test_list_dir_iter() {
+        let client = BaiduPcsClient::new(
+            "126.0a86437862dffb06d5d8773322fcb3d9.YCAJdSL-cWFVMa31pQgKFG9h5kDg8QV4nMnd7mT.t5qH1Q",
+            BAIDU_PCS_APP,
+        );
+        let mut count = 0;
+        // 小 limit 强制多页，验证翻页拼接与终止逻辑
+        for item in client.list_dir_iter("/我的资源", Some(3)) {
+            println!("item: {:?}", item);
+            count += 1;
+            if count > 5000 {
+                break;
+            }
+        }
+        println!("total: {}", count);
     }
 
     #[test]

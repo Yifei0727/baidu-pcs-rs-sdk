@@ -175,6 +175,10 @@
         - get_user_quota(check_free: bool, check_expire: bool) -> PcsDiskQuota
     - 目录与文件
         - list_dir(path: &str) -> PcsFileListResult
+        - list_dir_paged(path: &str, start: Option<u64>, limit: Option<u64>) -> PcsFileListResult
+            - 分页版列目录；start 从 0 开始，limit 建议不超过 1000
+        - list_dir_iter(path: &str, limit: Option<u64>) -> PcsDirPager
+            - 自动翻页迭代器，逐条遍历目录下全部文件（Iterator<Item = PcsFileItem>）
         - create_folder(path: &str) -> PcsCreateFolderResult
         - delete(paths: &Vec<String>, is_async: Option<bool>) -> PcsFileTaskOperationResult
     - 上传
@@ -202,6 +206,7 @@
         - let mut client = BaiduPcsClient::new(access_token, app);
         - client.ware()?;
     - 列目录：client.list_dir("/")?
+    - 遍历目录全部文件（自动翻页）：for item in client.list_dir_iter("/", None) { /* ... */ }
     - 上传大文件：client.upload_large_file("./a.bin", "/a.bin", PcsUploadPolicy::Overwrite, |p| { /* 进度 */ })?
     - 下载：client.down_file("/a.bin", "./a.bin", None)?
 
