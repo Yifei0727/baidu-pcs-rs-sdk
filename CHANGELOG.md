@@ -2,6 +2,13 @@
 
 本文件记录各版本的可见变更。格式参考 [Keep a Changelog](https://keepachangelog.com/)，版本号遵循语义化版本（SemVer）。
 
+## [0.5.0] - 2026-09-17
+
+### 新增 (Added)
+- **`list_dir` 分页能力**：
+  - 新增 `list_dir_paged(path, start, limit)`：分页版列目录，透传 API 的 `start`（起始位置，从 0 开始）与 `limit`（每页条数，建议不超过 1000）参数；原 `list_dir(path)` 签名不变，内部委托本方法。
+  - 新增 `list_dir_iter(path, limit) -> PcsDirPager`：自动翻页的同步迭代器（`Iterator<Item = PcsFileItem>`），逐条遍历目录下全部文件，以"返回条数不足一页"判定结束，迭代中途请求出错时静默终止；提供 `into_inner()` 取回客户端引用。
+
 ## [0.4.3] - 2026-08-13
 
 ### 修复 (Fixed)
