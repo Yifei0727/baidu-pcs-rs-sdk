@@ -947,7 +947,16 @@ impl BaiduPcsClient {
 
         let cb_arc: Arc<Mutex<dyn FnMut(ProgressInfo) + Send>> =
             Arc::new(Mutex::new(progress_callback));
-        let slice_size = self.user_info.as_ref().unwrap().get_user_block_slice_size();
+        let slice_size = match &self.user_info {
+            Some(u) => u.get_user_block_slice_size(),
+            None => match self.get_user_info() {
+                Ok(u) => u.get_user_block_slice_size(),
+                Err(e) => {
+                    log::warn!("未能自动获取用户信息，使用默认切片大小 4MB: {}", e);
+                    4 * 1024 * 1024
+                }
+            },
+        };
 
         let mut md5s: Vec<String> = Vec::with_capacity(total_parts);
         for i in 0..total_parts {
