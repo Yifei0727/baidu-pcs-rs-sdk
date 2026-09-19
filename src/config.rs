@@ -77,18 +77,34 @@ pub fn get_config_file_path(custom_config: Option<&String>) -> PathBuf {
 pub fn save_or_update_config(config: &mut Config, custom_config: Option<&String>) {
     use std::io::prelude::*;
     let path = get_config_file_path(custom_config);
-    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    if let Some(parent) = path.parent() {
+        if let Err(e) = fs::create_dir_all(parent) {
+            log::error!("创建配置目录失败 {}: {}", parent.display(), e);
+            return;
+        }
+    }
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         use std::os::unix::fs::PermissionsExt;
-        let config_file = File::create(path.as_path()).unwrap();
-        config_file
-            .set_permissions(fs::Permissions::from_mode(0o600))
-            .unwrap();
+        if let Ok(config_file) = File::create(path.as_path()) {
+            let _ = config_file.set_permissions(fs::Permissions::from_mode(0o600));
+        }
     }
-    let mut file = File::create(path.as_path()).unwrap();
-    let config_str = toml::to_string(&config).unwrap();
-    file.write_all(config_str.as_bytes()).unwrap();
+    match File::create(path.as_path()) {
+        Ok(mut file) => match toml::to_string(&config) {
+            Ok(config_str) => {
+                if let Err(e) = file.write_all(config_str.as_bytes()) {
+                    log::error!("写入配置文件失败 {}: {}", path.display(), e);
+                }
+            }
+            Err(e) => {
+                log::error!("序列化配置失败: {}", e);
+            }
+        },
+        Err(e) => {
+            log::error!("创建配置文件失败 {}: {}", path.display(), e);
+        }
+    }
 }
 
 pub fn config_load_or_init(
@@ -103,7 +119,7 @@ pub fn config_load_or_init(
     if !path.exists() {
         info!(
             "配置文件 {} 不存在，正在创建默认配置文件并进行认证...",
-            path.to_str().unwrap()
+            path.display()
         );
         let local_root = local.unwrap_or_else(|| "/data/backup/".to_string());
         let remote_root = remote.unwrap_or_else(|| "/".to_string());
@@ -124,29 +140,41 @@ pub fn config_load_or_init(
         };
         save_or_update_config(&mut config, custom_config);
     }
-    let mut file = File::open(path.clone()).unwrap();
+    let mut file = match File::open(&path) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("无法打开配置文件 {}: {}", path.display(), e);
+            std::process::exit(1);
+        }
+    };
     let mut contents = String::new();
-    file.read_to_string(&mut contents).unwrap();
+    if let Err(e) = file.read_to_string(&mut contents) {
+        eprintln!("无法读取配置文件 {}: {}", path.display(), e);
+        std::process::exit(1);
+    }
     // 避免在日志中打印包含 access_token / refresh_token 的配置内容
     debug!("成功读取配置文件: {}", path.display());
-    let config_a = toml::from_str::<Config>(&contents);
-    config_a.expect("config file is not valid")
+    match toml::from_str::<Config>(&contents) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("配置文件格式无效 {}: {}", path.display(), e);
+            std::process::exit(1);
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::config::get_config_file_path;
-    use std::env;
 
     #[test]
     fn test_get_config_file_path() {
         let path = get_config_file_path(None);
-        assert_eq!(
-            path.to_str().unwrap(),
-            format!(
-                "{}/.config/baidu-pcs-rs/config.toml",
-                env::var("HOME").unwrap()
-            )
-        );
+        let expected = directories::BaseDirs::new()
+            .unwrap()
+            .config_dir()
+            .join("baidu-pcs-rs")
+            .join("config.toml");
+        assert_eq!(path, expected);
     }
 }

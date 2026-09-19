@@ -1,7 +1,5 @@
 use crate::baidu_pcs_sdk::{BaiduPcsApp, PcsAccessToken, PcsError};
-use crate::dns;
 use getset::Getters;
-use log::info;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -50,7 +48,7 @@ pub trait BaiduPanDeviceAuthClient {
     // 关于应用的相关信息，您可在控制台，点进去您对应的应用，查看应用详情获得。
     /// # Returns
     /// * `DeviceTicket` - DeviceTicket一次性凭证
-    fn get_user_code(&self) -> PcsDeviceTicket;
+    fn get_user_code(&self) -> Result<PcsDeviceTicket, PcsError>;
     /// 3. 用 Device Code 轮询换取 Access Token
     //
     // 通过 Device Code 轮询换取 Access Token。换取Access Token 的实现依赖于以下请求链接：
@@ -100,16 +98,20 @@ impl BaiduPanClient {
         R: DeserializeOwned,
     {
         let future = async {
-            let text = self
+            let resp = self
                 .client
                 .get(prefix)
                 .query(&params)
                 .send()
                 .await
-                .unwrap()
-                .text()
-                .await
-                .unwrap();
+                .map_err(|e| PcsError {
+                    error: String::from("network_error"),
+                    error_description: format!("网络请求失败: {}", e),
+                })?;
+            let text = resp.text().await.map_err(|e| PcsError {
+                error: String::from("read_body_error"),
+                error_description: format!("读取响应失败: {}", e),
+            })?;
 
             // 避免在日志中泄露 access_token / refresh_token 等敏感凭据
             let result: Result<R, _> = serde_json::from_str(text.as_str());
@@ -123,8 +125,8 @@ impl BaiduPanClient {
                         Err(e) => Err(PcsError {
                             error: String::from("pcs sdk error"),
                             error_description: format!(
-                                "反序列化错误信息失败: {:?} {:?} {:?}",
-                                text, reason, e
+                                "反序列化错误信息失败: {:?} {:?}",
+                                reason, e
                             ),
                         }),
                     }
@@ -154,7 +156,7 @@ impl BaiduPanDeviceAuthClient for BaiduPanClient {
         }
     }
 
-    fn get_user_code(&self) -> PcsDeviceTicket {
+    fn get_user_code(&self) -> Result<PcsDeviceTicket, PcsError> {
         const URL: &str = "https://openapi.baidu.com/oauth/2.0/device/code";
         #[derive(Serialize)]
         struct Params<'a> {
@@ -168,7 +170,7 @@ impl BaiduPanDeviceAuthClient for BaiduPanClient {
             client_id: self.pcs_node.get_app_key(),
             scope: "basic,netdisk",
         };
-        self.request(URL, params).unwrap()
+        self.request(URL, params)
     }
 
     fn get_access_token(&self, device_code: String) -> Result<PcsAccessToken, PcsError> {
@@ -238,18 +240,16 @@ mod test {
     };
     #[test]
     fn test_get_user_code() {
-        log::log_enabled!(log::Level::Debug);
-
+        
         let client: BaiduPanClient = BaiduPanDeviceAuthClient::with(BAIDU_PCS_APP);
-        let user_code: PcsDeviceTicket = client.get_user_code();
+        let user_code = client.get_user_code();
 
         println!("user_code: {:?}", user_code);
     }
 
     #[test]
     fn test_get_access_token() {
-        log::log_enabled!(log::Level::Debug);
-        let client: BaiduPanClient = BaiduPanDeviceAuthClient::with(BAIDU_PCS_APP);
+                let client: BaiduPanClient = BaiduPanDeviceAuthClient::with(BAIDU_PCS_APP);
         let access_token: PcsAccessToken = client
             .get_access_token(String::from("eb5ce9ded31f6a3778ab3f66ec330820"))
             .unwrap();
@@ -258,8 +258,7 @@ mod test {
 
     #[test]
     fn test_refresh_access_token() {
-        log::log_enabled!(log::Level::Debug);
-
+        
         let client: BaiduPanClient = BaiduPanDeviceAuthClient::with(BAIDU_PCS_APP);
         let access_token: PcsAccessToken = PcsAccessToken::new(
             "126.e894e87c7f7771a4bcae5cf27955b389.YB_Z3FqgglDb1qeIUif--0gZksBUPzhagunVKoQ.Mj7EyA",

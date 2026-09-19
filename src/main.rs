@@ -538,7 +538,9 @@ fn main() {
     let mut log_dir = env::temp_dir();
     log_dir.push("baidu-pcs-rs/logs");
     if !log_dir.exists() {
-        fs::create_dir_all(&log_dir).expect("无法创建日志目录");
+        if let Err(e) = fs::create_dir_all(&log_dir) {
+            eprintln!("警告: 无法创建日志目录 {}: {}", log_dir.display(), e);
+        }
     }
     let now = Local::now();
     let pid = std::process::id();
@@ -563,8 +565,16 @@ fn main() {
             _ => LevelFilter::Trace, // -vvv 及以上视为最详尽的 Trace
         };
     }
-    let log_file = File::create(&log_file_path).expect("无法创建日志文件");
-    WriteLogger::init(log_level, LogConfig::default(), log_file).expect("日志初始化失败");
+    match File::create(&log_file_path) {
+        Ok(log_file) => {
+            if let Err(e) = WriteLogger::init(log_level, LogConfig::default(), log_file) {
+                eprintln!("警告: 日志初始化失败: {}", e);
+            }
+        }
+        Err(e) => {
+            eprintln!("警告: 无法创建日志文件 {}: {}", log_file_path.display(), e);
+        }
+    }
 
     // version 子命令无需配置和认证，直接输出版本信息
     if matches!(cli.command, Some(Commands::Version)) {
@@ -743,18 +753,18 @@ fn main() {
                         v
                     } else {
                         print!("  本地备份目录: ");
-                        io::stdout().flush().unwrap();
+                        let _ = io::stdout().flush();
                         let mut buf = String::new();
-                        io::stdin().read_line(&mut buf).unwrap();
+                        let _ = io::stdin().read_line(&mut buf);
                         buf.trim().to_string()
                     };
                     let remote = if let Some(v) = r {
                         v
                     } else {
                         print!("  远程备份目录: ");
-                        io::stdout().flush().unwrap();
+                        let _ = io::stdout().flush();
                         let mut buf = String::new();
-                        io::stdin().read_line(&mut buf).unwrap();
+                        let _ = io::stdin().read_line(&mut buf);
                         buf.trim().to_string()
                     };
                     if local.is_empty() || remote.is_empty() {

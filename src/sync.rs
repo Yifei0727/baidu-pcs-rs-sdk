@@ -27,31 +27,45 @@ pub fn scan_files_recursive(dir: &str, mut files: Vec<String>) -> Vec<String> {
     fn is_path_hidden(path: &Path) -> bool {
         path.file_name()
             .and_then(|name| name.to_str())
-            .map(|name| name.starts_with("."))
+            .map(|name| name.starts_with('.'))
             .unwrap_or(false)
     }
-    if !Path::new(dir).exists() {
+    let p = Path::new(dir);
+    if !p.exists() {
         return files;
     }
-    if Path::new(dir).is_file() {
-        let path = fs::canonicalize(PathBuf::from(dir));
-        match path.is_ok() {
-            true => {
-                files.push(path.unwrap().to_string_lossy().to_string());
-            }
-            false => {
-                files.push(dir.to_string());
-            }
+    if p.is_file() {
+        if let Ok(canon) = fs::canonicalize(p) {
+            files.push(canon.to_string_lossy().to_string());
+        } else {
+            files.push(dir.to_string());
         }
         return files;
     }
-    let paths = fs::read_dir(dir).unwrap();
-    for path in paths {
-        let path = path.unwrap().path();
+    let paths = match fs::read_dir(dir) {
+        Ok(paths) => paths,
+        Err(e) => {
+            log::warn!("读取目录失败 {}: {}", dir, e);
+            return files;
+        }
+    };
+    for entry_res in paths {
+        let entry = match entry_res {
+            Ok(e) => e,
+            Err(e) => {
+                log::warn!("读取目录项失败: {}", e);
+                continue;
+            }
+        };
+        let path = entry.path();
         if path.is_dir() && !is_path_hidden(&path) {
-            files.append(&mut scan_files_recursive(path.to_str().unwrap(), vec![]));
+            if let Some(s) = path.to_str() {
+                files.append(&mut scan_files_recursive(s, vec![]));
+            }
         } else if path.is_file() && !is_path_hidden(&path) {
-            files.push(path.to_str().unwrap().to_string());
+            if let Some(s) = path.to_str() {
+                files.push(s.to_string());
+            }
         }
     }
     files
@@ -158,7 +172,13 @@ pub fn task_scheduler<F>(dir: &str, remote_dir: &str, include_prefix: bool, cons
 where
     F: Fn(String, String) -> Result<PcsFileUploadResult, Box<dyn Error>>,
 {
-    let local_path = PathBuf::from(dir).canonicalize().unwrap();
+    let local_path = match PathBuf::from(dir).canonicalize() {
+        Ok(p) => p,
+        Err(e) => {
+            log::error!("本地路径不存在或无法访问: {} ({})", dir, e);
+            return;
+        }
+    };
     let scanned_local_files = if local_path.is_dir() {
         scan_files_recursive(dir, vec![])
     } else {
@@ -168,15 +188,17 @@ where
     for file in scanned_local_files {
         let pcs_path_buf = PathBuf::from(remote_dir);
         let file_path = PathBuf::from(file.clone());
-        let remote_file_path = pcs_path_buf.join(if include_prefix {
-            file_path.strip_prefix("/").unwrap()
+        let relative = if include_prefix {
+            file_path.strip_prefix("/").unwrap_or(&file_path)
         } else if local_path.is_absolute() {
-            file_path
-                .strip_prefix(local_path.parent().unwrap())
-                .unwrap()
+            local_path
+                .parent()
+                .and_then(|parent| file_path.strip_prefix(parent).ok())
+                .unwrap_or_else(|| file_path.as_path())
         } else {
             file_path.as_path()
-        });
+        };
+        let remote_file_path = pcs_path_buf.join(relative);
         info!("{:?}", remote_file_path);
         let _ = consumer(file, remote_file_path.to_string_lossy().to_string());
     }
@@ -194,7 +216,7 @@ pub(crate) fn run_upload_task(args: &TxArgs, _config: &Config, client: &BaiduPcs
             let file_size = fs::metadata(&local).map(|m| m.len()).unwrap_or(0);
             let pb = ProgressBar::new(file_size);
             pb.set_style(ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{bar:72.cyan/blue}] {bytes}/{total_bytes} ({percent}%) {bytes_per_sec} ETA {eta_precise} | {msg}", )
-                             .unwrap()
+                             .unwrap_or_else(|_| ProgressStyle::default_bar())
                              .progress_chars("=>-"));
             pb.set_message(format!("{} -> {}", local, remote));
             let result = client.upload_large_file(
@@ -253,7 +275,7 @@ pub(crate) fn run_download_task(args: &RxArgs, _config: &Config, client: &BaiduP
     // 获取远程文件信息，获得文件大小
     let pb = ProgressBar::no_length();
     pb.set_style(ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{bar:72.cyan/blue}] {bytes}/{total_bytes} ({percent}%) {bytes_per_sec} ETA {eta_precise} | {msg}", )
-                     .unwrap()
+                     .unwrap_or_else(|_| ProgressStyle::default_bar())
                      .progress_chars("=>-"));
     pb.set_message(format!(
         "{} -> {}",
@@ -451,13 +473,20 @@ fn do_backup(
     ascending: bool,
 ) -> BackupSessionStats {
 
-    let local_path = PathBuf::from(local_root)
-        .canonicalize()
-        .expect("本地路径不存在");
+    let local_path = match PathBuf::from(local_root).canonicalize() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("本地路径不存在或无法访问: {} ({})", local_root, e);
+            return BackupSessionStats::default();
+        }
+    };
     let local_base = if local_path.is_dir() {
         local_path.clone()
     } else {
-        local_path.parent().unwrap().to_path_buf()
+        local_path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| local_path.clone())
     };
 
     let mut scanned = scan_files_recursive(local_root, vec![]);
@@ -511,7 +540,7 @@ fn do_backup(
             ProgressStyle::with_template(
                 "{spinner:.green} [{elapsed_precise}] [{bar:72.cyan/blue}] {bytes}/{total_bytes} ({percent}%) {bytes_per_sec} ETA {eta_precise} | {msg}",
             )
-            .unwrap()
+            .unwrap_or_else(|_| ProgressStyle::default_bar())
             .progress_chars("=>-"),
         );
         pb.set_message(format!("{} -> {}", file, remote_path));
@@ -746,7 +775,7 @@ fn download_share_files(
                         ProgressStyle::with_template(
                             "{spinner:.green} [{elapsed_precise}] [{bar:72.cyan/blue}] {bytes}/{total_bytes} ({percent}%) {bytes_per_sec} ETA {eta_precise} | {msg}",
                         )
-                        .unwrap()
+                        .unwrap_or_else(|_| ProgressStyle::default_bar())
                         .progress_chars("=>-"),
                     );
                     pb.set_message(format!("下载 {}", relative_path));

@@ -12,7 +12,15 @@ pub fn device_auth() -> PcsAccessToken {
 pub fn device_auth_with_dns(dns: Option<&str>) -> PcsAccessToken {
     debug!("device_auth");
     let client: BaiduPanClient = BaiduPanDeviceAuthClient::with_dns(BAIDU_PCS_APP, dns);
-    let ticket = client.get_user_code();
+    let ticket = match client.get_user_code() {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("获取设备授权码失败: {} ({})，3秒后重试...", e.error(), e.error_description());
+            error!("获取设备授权码失败: {} ({})", e.error(), e.error_description());
+            sleep(std::time::Duration::from_secs(3));
+            return device_auth_with_dns(dns);
+        }
+    };
     println!(
         "请在浏览器中打开网址: {} \n并输入验证码: {}",
         ticket.get_verification_url(),
@@ -31,15 +39,16 @@ pub fn device_auth_with_dns(dns: Option<&str>) -> PcsAccessToken {
             Err(error) => {
                 info!("error: {:?}  try again ...", error);
                 match error.error().as_str() {
-                    "pcs sdk error" => {
-                        panic!("{}", error.error_description())
-                    }
                     "authorization_pending" => {
                         continue;
                     }
+                    "pcs sdk error" | "network_error" | "read_body_error" => {
+                        error!("认证请求异常: {}，稍后重试...", error.error_description());
+                        continue;
+                    }
                     _ => {
-                        // "invalid_grant"
-                        error!("{}", error.error());
+                        // "invalid_grant" 等失效错误
+                        error!("认证失效: {} ({})，重新获取授权码...", error.error(), error.error_description());
                         return device_auth_with_dns(dns);
                     }
                 }

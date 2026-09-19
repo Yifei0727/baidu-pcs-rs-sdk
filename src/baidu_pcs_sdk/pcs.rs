@@ -19,7 +19,6 @@ pub use crate::baidu_pcs_sdk::{
     ShareVerifyResult, UploadServerResult,
 };
 
-use crate::dns;
 use futures::{Stream, TryStreamExt};
 use tokio_util::io::ReaderStream;
 
@@ -137,13 +136,13 @@ fn get_file_block_list(
             .created()
             .or_else(|_| file_meta.modified())?
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64,
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0),
         mtime: file_meta
             .modified()?
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64,
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0),
     })
 }
 
@@ -775,13 +774,14 @@ impl BaiduPcsClient {
                     let len = chunk.len() as u64;
                     let prev = sent_clone.fetch_add(len, std::sync::atomic::Ordering::Relaxed);
                     if let Some(cb) = cb_opt.as_ref() {
-                        let mut cb_lock = cb.lock().unwrap();
-                        (cb_lock)(ProgressInfo {
-                            total_bytes,
-                            uploaded_bytes: base_uploaded.saturating_add(prev),
-                            current_part,
-                            current_part_bytes: len,
-                        });
+                        if let Ok(mut cb_lock) = cb.lock() {
+                            (cb_lock)(ProgressInfo {
+                                total_bytes,
+                                uploaded_bytes: base_uploaded.saturating_add(prev),
+                                current_part,
+                                current_part_bytes: len,
+                            });
+                        }
                     }
                     chunk
                 }))
@@ -791,13 +791,14 @@ impl BaiduPcsClient {
                     let len = chunk.len() as u64;
                     let prev = sent_clone.fetch_add(len, std::sync::atomic::Ordering::Relaxed);
                     if let Some(cb) = cb_opt.as_ref() {
-                        let mut cb_lock = cb.lock().unwrap();
-                        (cb_lock)(ProgressInfo {
-                            total_bytes,
-                            uploaded_bytes: base_uploaded.saturating_add(prev),
-                            current_part,
-                            current_part_bytes: len,
-                        });
+                        if let Ok(mut cb_lock) = cb.lock() {
+                            (cb_lock)(ProgressInfo {
+                                total_bytes,
+                                uploaded_bytes: base_uploaded.saturating_add(prev),
+                                current_part,
+                                current_part_bytes: len,
+                            });
+                        }
                     }
                     chunk
                 }))
@@ -845,29 +846,31 @@ impl BaiduPcsClient {
             path_src.as_path().to_string_lossy().to_string()
         } else {
             // 如果不是 /apps/{app-name}/ 目录下，自动添加
-            path_buf.push(pcs_path.strip_prefix("/").unwrap());
+            path_buf.push(pcs_path.strip_prefix("/").unwrap_or(pcs_path));
             path_buf.as_path().to_string_lossy().to_string()
         };
         let pcs_path = pcs_path.as_str();
 
+        let file_len = file.metadata().map(|m| m.len()).unwrap_or(0);
         let future = async {
             let form = Self::create_form(
                 local_file,
                 &ProgressInfo {
-                    total_bytes: file.metadata().unwrap().len(),
+                    total_bytes: file_len,
                     uploaded_bytes: 0,
                     current_part: 0,
-                    current_part_bytes: file.metadata().unwrap().len(),
+                    current_part_bytes: file_len,
                 },
                 None,
                 self.tx_limiter.clone(),
             )
             .await
-            .unwrap();
-            trace!("file len: {}", file.metadata().unwrap().len());
+            .map_err(|e| AppError::new(AppErrorType::Client, e.to_string().as_str(), None))?;
+            trace!("file len: {}", file_len);
             let post_url = format!("{}{}", PREFIX_FILE_SERVER, PATH);
             trace!("upload_single_file POST {}", post_url);
-            self.client
+            let resp = self
+                .client
                 .post(post_url)
                 .query(&[
                     // 本接口固定为upload
@@ -889,9 +892,10 @@ impl BaiduPcsClient {
                 .multipart(form)
                 .send()
                 .await
-                .unwrap()
-                .text()
+                .map_err(|e| AppError::new(AppErrorType::Network, e.to_string().as_str(), None))?;
+            resp.text()
                 .await
+                .map_err(|e| AppError::new(AppErrorType::Network, e.to_string().as_str(), None))
         };
         // 文件上传使用单独的runtime
         let runtime = tokio::runtime::Runtime::new()?;
@@ -954,13 +958,10 @@ impl BaiduPcsClient {
             Arc::new(Mutex::new(progress_callback));
         let slice_size = match &self.user_info {
             Some(u) => u.get_user_block_slice_size(),
-            None => match self.get_user_info() {
-                Ok(u) => u.get_user_block_slice_size(),
-                Err(e) => {
-                    log::warn!("未能自动获取用户信息，使用默认切片大小 4MB: {}", e);
-                    4 * 1024 * 1024
-                }
-            },
+            None => self
+                .get_user_info()
+                .map(|u| u.get_user_block_slice_size())
+                .unwrap_or(4 * 1024 * 1024),
         };
 
         let mut md5s: Vec<String> = Vec::with_capacity(total_parts);
@@ -1144,10 +1145,11 @@ impl BaiduPcsClient {
                 self.tx_limiter.clone(),
             )
             .await
-            .unwrap();
+            .map_err(|e| AppError::new(AppErrorType::Client, e.to_string().as_str(), None))?;
             let post_url = format!("{}{}", upload_server, PATH);
             trace!("file_slice_upload POST {}", post_url);
-            self.client
+            let resp = self
+                .client
                 .post(post_url)
                 .query(&Query {
                     method: "upload",
@@ -1160,9 +1162,10 @@ impl BaiduPcsClient {
                 .multipart(form)
                 .send()
                 .await
-                .unwrap()
-                .text()
+                .map_err(|e| AppError::new(AppErrorType::Network, e.to_string().as_str(), None))?;
+            resp.text()
                 .await
+                .map_err(|e| AppError::new(AppErrorType::Network, e.to_string().as_str(), None))
         };
 
         let runtime = tokio::runtime::Runtime::new()?;
@@ -1711,9 +1714,12 @@ impl BaiduPcsClient {
             ));
         }
         let binding = PathBuf::from(path.to_string());
-        let parent = binding.parent().unwrap();
+        let parent = match binding.parent() {
+            Some(p) => p.to_str().unwrap_or("/"),
+            None => "/",
+        };
         // load cached path list
-        let list = self.list_dir(parent.to_str().unwrap())?;
+        let list = self.list_dir(parent)?;
         for item in list.list {
             if item.path == path {
                 return Ok(item.fs_id);
@@ -1763,16 +1769,15 @@ impl BaiduPcsClient {
                     format!("未找到文件 {}", fs_id).as_str(),
                     None,
                 ))
-            } else if meta_res.list[0].dlink.is_none() {
+            } else if let Some(down_link) = meta_res.list[0].dlink.as_deref() {
+                info!("准备下载文件: {:?}", meta_res.list[0]);
+                self.download(down_link, local_path, progress)
+            } else {
                 Err(AppError::new(
                     AppErrorType::Unknown,
                     format!("未找到文件下载链接 {}", fs_id).as_str(),
                     None,
                 ))
-            } else {
-                info!("准备下载文件: {:?}", meta_res.list[0]);
-                let down_link = meta_res.list[0].dlink.as_ref().unwrap();
-                self.download(down_link, local_path, progress)
             }
         })
     }
@@ -1810,10 +1815,13 @@ impl BaiduPcsClient {
                 let entry = entry?;
                 if entry.file_type()?.is_file() {
                     let mut this_file = prefix.clone();
-                    this_file.push(entry.path().strip_prefix(local_file).unwrap());
+                    let rel = entry.path().strip_prefix(local_file).unwrap_or(&entry.path()).to_path_buf();
+                    this_file.push(rel);
+                    let entry_str = entry.path().to_string_lossy().to_string();
+                    let dest_str = this_file.to_string_lossy().to_string();
                     rs.push(self.upload_large_file(
-                        entry.path().to_str().unwrap(),
-                        this_file.as_path().to_str().unwrap(),
+                        &entry_str,
+                        &dest_str,
                         PcsUploadPolicy::Overwrite,
                         |_| {},
                     )?)
