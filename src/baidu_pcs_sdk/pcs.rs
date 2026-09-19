@@ -162,7 +162,10 @@ where
             let resp: R = serde_json::from_str(text.as_str())?;
             Ok(resp)
         }
-        _ => Err(status.into()),
+        _ => {
+            log::debug!("API 返回错误响应 (errno={}): {}", status.errno, text);
+            Err(status.into())
+        }
     }
 }
 
@@ -360,15 +363,17 @@ impl BaiduPcsClient {
             .query(&params)
             .query(&[("access_token", self.access_token.as_str())])
             .send()
-            .await
-            .unwrap()
+            .await?
             .text()
             .await
         };
         let text = self
             .runtime
             .block_on(fetch)
-            .map_err(|e| AppError::new(AppErrorType::Network, e.to_string().as_str(), None))?;
+            .map_err(|e| {
+                let msg = e.to_string().replace(self.access_token.as_str(), "<access_token_masked>");
+                AppError::new(AppErrorType::Network, msg.as_str(), None)
+            })?;
         trace!("_request response text: {}", text);
         if_rest_ok_then_get_else_err(text)
     }
@@ -1577,7 +1582,7 @@ impl BaiduPcsClient {
             download_link,
             self.access_token.as_str()
         );
-        trace!("download GET {}", full_url);
+        trace!("download GET {} (access_token masked)", download_link);
         let fut = async {
             let mut resp = self
                 .client
@@ -1657,7 +1662,7 @@ impl BaiduPcsClient {
             offset,
             offset + (len as u64).saturating_sub(1)
         );
-        trace!("download_range_by_path GET {} ({})", url, range_header);
+        trace!("download_range_by_path GET {} (access_token masked) ({})", dlink, range_header);
 
         let fut = async {
             let resp = self

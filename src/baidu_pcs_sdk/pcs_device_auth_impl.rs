@@ -111,7 +111,7 @@ impl BaiduPanClient {
                 .await
                 .unwrap();
 
-            info!("request: response=> {}", text.as_str());
+            // 避免在日志中泄露 access_token / refresh_token 等敏感凭据
             let result: Result<R, _> = serde_json::from_str(text.as_str());
             // 如果尝试反序列化失败，一般说明调用接口失败，尝试反序列化错误信息
             match result {

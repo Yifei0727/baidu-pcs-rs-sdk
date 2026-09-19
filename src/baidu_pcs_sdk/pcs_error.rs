@@ -114,9 +114,20 @@ impl From<PcsApiError> for AppError {
         if e.errno == i32::MIN {
             AppError::new(Server, e.raw.as_str(), None)
         } else {
+            let msg = match e.err_msg {
+                Some(ref m) if !m.trim().is_empty() => m.clone(),
+                _ => {
+                    let translated = try_translate_errno(&String::new(), e.errno as i64);
+                    if !translated.starts_with("errno=") {
+                        format!("{} ({})", translated, e.raw)
+                    } else {
+                        e.raw.clone()
+                    }
+                }
+            };
             AppError::new(
                 Server,
-                e.err_msg.unwrap_or(e.raw).to_string().as_str(),
+                msg.as_str(),
                 Some(e.errno as i64),
             )
         }

@@ -127,7 +127,8 @@ pub fn config_load_or_init(
     let mut file = File::open(path.clone()).unwrap();
     let mut contents = String::new();
     file.read_to_string(&mut contents).unwrap();
-    debug!("config => {}", contents);
+    // 避免在日志中打印包含 access_token / refresh_token 的配置内容
+    debug!("成功读取配置文件: {}", path.display());
     let config_a = toml::from_str::<Config>(&contents);
     config_a.expect("config file is not valid")
 }
