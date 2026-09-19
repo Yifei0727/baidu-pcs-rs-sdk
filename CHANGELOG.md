@@ -2,6 +2,23 @@
 
 本文件记录各版本的可见变更。格式参考 [Keep a Changelog](https://keepachangelog.com/)，版本号遵循语义化版本（SemVer）。
 
+## [0.5.2] - 2026-09-19
+
+### 修复 (Fixed)
+- **文件管理系列接口序列化别名错误 (#1)**：
+  - 修复 `DeleteAttributes` 与 `FileManagerAttributes` 误用 `#[serde(alias = "filelist")]` 导致 `delete` / `copy_file` / `move_file` / `rename_file` 实际序列化字段为 `file_list`、API 统一报错 `errno: 2` 的问题；更正为 `#[serde(rename = "filelist")]`。
+  - 同步修正 `get_user_quota` 中 `checkfree` / `checkexpire` 以及 `PreCreateAttributes` 中 `content-md5` / `slice-md5` 的序列化命名。
+- **大文件上传初始化异常 (#2)**：
+  - 修复未显式调用 `ware()` 时直接调用 `upload_large_file` 因 `user_info` 为 `None` 导致的 `unwrap` panic；改为按需动态拉取并兜底默认 4MB 分片大小。
+- **网络异常 panic 与 Token 泄露隐患 (#3)**：
+  - 消除 `_request` 中的 `send().await.unwrap().text().await`，转为标准 `Result` 传播（`AppErrorType::Network`），避免断网/DNS异常导致崩溃。
+  - 对网络异常信息中包含的请求 URL 自动进行 `access_token` 脱敏替换。
+  - 消除 `download` 与 `download_range_by_path` 的 `trace!` 日志中拼接的明文 `access_token`。
+  - 移除 OAuth 设备授权原始响应报文及 `config.toml` 读取时打印完整 Token 的调试日志。
+  - API 错误响应中保留原始 body，并在 `AppError` 中展示对应 `errno` 的中文释义，便于排障。
+- **全工程稳定性加固**：
+  - 消除认证、文件扫描、本地同步、任务调度、配置读写与日志初始化中的各类潜在 `panic!` / `.unwrap()` / `.expect()`，全面改用标准错误返回与优雅容错。
+
 ## [0.5.1] - 2026-09-19
 
 ### 变更 (Changed)
