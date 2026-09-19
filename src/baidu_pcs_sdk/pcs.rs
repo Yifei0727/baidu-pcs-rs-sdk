@@ -1,4 +1,4 @@
-use log::{debug, info};
+use log::{info, trace};
 use md5::{Digest, Md5};
 use reqwest::{Body, Client};
 use serde::de::DeserializeOwned;
@@ -80,6 +80,7 @@ fn get_file_block_list(
     user_info: &PcsUserInfo,
     file_path: &str,
 ) -> Result<PcsFileSliceInfo, AppError> {
+    info!("计算本地文件分块信息 (get_file_block_list): file_path={}", file_path);
     let mut file = File::open(file_path)?;
     let file_meta = file.metadata()?;
     let file_size = file_meta.len();
@@ -255,6 +256,7 @@ impl BaiduPcsClient {
     }
 
     pub fn ware(&mut self) -> Result<(), AppError> {
+        info!("初始化客户端信息与配额 (ware)");
         self.user_info = Some(self.get_user_info()?);
         self.disk_quota = Some(self.get_user_quota(false, false)?);
         Ok(())
@@ -309,7 +311,7 @@ impl BaiduPcsClient {
         P: Serialize,
         R: DeserializeOwned,
     {
-        debug!(
+        trace!(
             "_request {} {}?{} {} {}",
             match m {
                 Get => "GET",
@@ -367,7 +369,7 @@ impl BaiduPcsClient {
             .runtime
             .block_on(fetch)
             .map_err(|e| AppError::new(AppErrorType::Network, e.to_string().as_str(), None))?;
-        debug!("_request response text: {}", text);
+        trace!("_request response text: {}", text);
         if_rest_ok_then_get_else_err(text)
     }
 
@@ -375,6 +377,7 @@ impl BaiduPcsClient {
     ///
     /// 本接口用于获取用户的基本信息，包括账号、头像地址、会员类型等。
     pub fn get_user_info(&self) -> Result<PcsUserInfo, AppError> {
+        info!("获取用户信息 (get_user_info)");
         #[derive(Serialize)]
         struct Params<'a> {
             /// method 本接口固定为uinfo
@@ -396,6 +399,10 @@ impl BaiduPcsClient {
         check_free: bool,
         check_expire: bool,
     ) -> Result<PcsDiskQuota, AppError> {
+        info!(
+            "获取网盘配额信息 (get_user_quota): check_free={}, check_expire={}",
+            check_free, check_expire
+        );
         const PATH: &str = "/api/quota";
         #[derive(Serialize)]
         struct Params {
@@ -421,6 +428,7 @@ impl BaiduPcsClient {
     /// 本接口用于创建文件夹。 https://pan.baidu.com/union/doc/6lbaqe1lw
     /// 对于已存在的目录
     pub fn create_folder(&self, path: &str) -> Result<PcsCreateFolderResult, AppError> {
+        info!("创建文件夹 (create_folder): path={}", path);
         const PATH: &str = "/rest/2.0/xpan/file";
         #[derive(Serialize)]
         struct Params<'a> {
@@ -481,6 +489,10 @@ impl BaiduPcsClient {
         paths: &Vec<String>,
         is_async: Option<bool>,
     ) -> Result<crate::baidu_pcs_sdk::PcsFileTaskOperationResult, AppError> {
+        info!(
+            "删除文件或目录 (delete): paths={:?}, is_async={:?}",
+            paths, is_async
+        );
         const PATH: &str = "/rest/2.0/xpan/file";
         #[derive(Serialize)]
         struct Params<'a> {
@@ -525,6 +537,7 @@ impl BaiduPcsClient {
         src: &str,
         dest: &str,
     ) -> Result<crate::baidu_pcs_sdk::PcsFileTaskOperationResult, AppError> {
+        info!("复制文件或目录 (copy_file): src={}, dest={}", src, dest);
         self.file_manager_copy_or_move("copy", src, dest)
     }
 
@@ -538,6 +551,7 @@ impl BaiduPcsClient {
         src: &str,
         dest: &str,
     ) -> Result<crate::baidu_pcs_sdk::PcsFileTaskOperationResult, AppError> {
+        info!("移动/重命名文件或目录 (move_file): src={}, dest={}", src, dest);
         self.file_manager_copy_or_move("move", src, dest)
     }
 
@@ -548,6 +562,10 @@ impl BaiduPcsClient {
         src: &str,
         dest: &str,
     ) -> Result<crate::baidu_pcs_sdk::PcsFileTaskOperationResult, AppError> {
+        info!(
+            "文件管理器操作 (file_manager_copy_or_move): opera={}, src={}, dest={}",
+            opera, src, dest
+        );
         const PATH: &str = "/rest/2.0/xpan/file";
         #[derive(Serialize)]
         struct Params<'a> {
@@ -605,6 +623,11 @@ impl BaiduPcsClient {
         &self,
         task: &PcsFileSlicePrepareResult,
     ) -> Result<UploadServerResult, AppError> {
+        info!(
+            "获取分片上传服务器 (get_upload_server): path={}, upload_id={}",
+            task.path(),
+            task.upload_id()
+        );
         const PATH: &str = "/rest/2.0/pcs/file";
         #[derive(Serialize)]
         struct Params<'a> {
@@ -639,6 +662,7 @@ impl BaiduPcsClient {
     /// 列出目录文件
     /// 本接口用于列出指定目录下的文件和子目录信息。 https://pan.baidu.com/union/doc/mksg0s9l4
     pub fn list_dir(&self, path: &str) -> Result<PcsFileListResult, AppError> {
+        info!("列出目录文件 (list_dir): path={}", path);
         self.list_dir_paged(path, None, None)
     }
 
@@ -652,6 +676,10 @@ impl BaiduPcsClient {
         start: Option<u64>,
         limit: Option<u64>,
     ) -> Result<PcsFileListResult, AppError> {
+        info!(
+            "列出目录文件分页 (list_dir_paged): path={}, start={:?}, limit={:?}",
+            path, start, limit
+        );
         const PATH: &str = "/rest/2.0/xpan/file";
         #[derive(Serialize)]
         struct Params<'a> {
@@ -701,6 +729,7 @@ impl BaiduPcsClient {
     /// 注意：接口响应中不含 has_more/总数 信息，翻页结束以"返回条数不足一页"判断；
     /// 若遍历期间目录内容发生变化，可能出现漏读或重复。
     pub fn list_dir_iter(&self, path: &str, limit: Option<u64>) -> PcsDirPager<'_> {
+        info!("遍历目录文件 (list_dir_iter): path={}, limit={:?}", path, limit);
         PcsDirPager {
             client: self,
             dir: path.to_string(),
@@ -792,6 +821,10 @@ impl BaiduPcsClient {
         pcs_path: &str,
         when_exists: i8,
     ) -> Result<PcsFileUploadResult, AppError> {
+        info!(
+            "上传单个文件 (upload_single_file): local_file={}, pcs_path={}, when_exists={}",
+            local_file, pcs_path, when_exists
+        );
         let file = File::open(local_file)?;
 
         // 官网文档中为 /rest/2.0/pcs/file 主机名是 d.pcs.baidu.com
@@ -826,9 +859,11 @@ impl BaiduPcsClient {
             )
             .await
             .unwrap();
-            debug!("file len: {}", file.metadata().unwrap().len());
+            trace!("file len: {}", file.metadata().unwrap().len());
+            let post_url = format!("{}{}", PREFIX_FILE_SERVER, PATH);
+            trace!("upload_single_file POST {}", post_url);
             self.client
-                .post(format!("{}{}", PREFIX_FILE_SERVER, PATH))
+                .post(post_url)
                 .query(&[
                     // 本接口固定为upload
                     ("method", "upload"),
@@ -856,7 +891,7 @@ impl BaiduPcsClient {
         // 文件上传使用单独的runtime
         let runtime = tokio::runtime::Runtime::new()?;
         let text = runtime.block_on(future)?;
-        debug!("upload_single_file {} ->text: {}", pcs_path, text);
+        trace!("upload_single_file {} ->text: {}", pcs_path, text);
         let resp: serde_json::error::Result<PcsFileUploadResult> = serde_json::from_str(&text);
         match resp {
             Ok(v) => Ok(v),
@@ -896,7 +931,10 @@ impl BaiduPcsClient {
     where
         F: FnMut(ProgressInfo) + Send + 'static,
     {
-        info!("准备上传大文件 {}", local_file);
+        info!(
+            "上传大文件 (upload_large_file): local_file={}, pcs_path={}",
+            local_file, pcs_path
+        );
 
         let (task, fs_meta) = self.file_slice_prepare(local_file, pcs_path, &police)?;
 
@@ -955,6 +993,10 @@ impl BaiduPcsClient {
         pcs_path: &str,
         police: &PcsUploadPolicy,
     ) -> Result<(PcsFileSlicePrepareResult, PcsFileSliceInfo), AppError> {
+        info!(
+            "预上传文件分片 (file_slice_prepare): local_file={}, pcs_path={}",
+            local_file, pcs_path
+        );
         const PATH: &str = "/rest/2.0/xpan/file";
         #[derive(Serialize)]
         struct Params<'a> {
@@ -1057,7 +1099,10 @@ impl BaiduPcsClient {
             .or_else(|| server.bak_servers().first())
             .map(|s| s.server().clone())
             .unwrap_or_else(|| String::from(PREFIX_FILE_SERVER));
-        info!("上传分片 {} 到服务器 {}", progress_info, upload_server);
+        info!(
+            "上传文件分片 (file_slice_upload): {} 到服务器 {}",
+            progress_info, upload_server
+        );
         #[derive(Serialize)]
         struct Query<'a> {
             /// 本接口固定为 `upload`
@@ -1086,8 +1131,10 @@ impl BaiduPcsClient {
             )
             .await
             .unwrap();
+            let post_url = format!("{}{}", upload_server, PATH);
+            trace!("file_slice_upload POST {}", post_url);
             self.client
-                .post(format!("{}{}", upload_server, PATH))
+                .post(post_url)
                 .query(&Query {
                     method: "upload",
                     access_token: self.access_token.as_str(),
@@ -1106,7 +1153,7 @@ impl BaiduPcsClient {
 
         let runtime = tokio::runtime::Runtime::new()?;
         let text = runtime.block_on(fut)?;
-        debug!("text: {}", text);
+        trace!("file_slice_upload response text: {}", text);
         let resp: serde_json::error::Result<UploadResultDTO> = serde_json::from_str(text.as_str());
         match resp {
             Ok(v) => Ok(v.md5),
@@ -1131,6 +1178,12 @@ impl BaiduPcsClient {
         hashes: Vec<String>,
         police: &PcsUploadPolicy,
     ) -> Result<PcsFileUploadResult, AppError> {
+        info!(
+            "合并文件分片 (file_slice_merge): path={}, size={}, upload_id={}",
+            upload_task.path(),
+            fs.size,
+            upload_task.upload_id()
+        );
         const PATH: &str = "/rest/2.0/xpan/file";
         #[derive(Serialize)]
         struct Params<'a> {
@@ -1211,6 +1264,7 @@ impl BaiduPcsClient {
     }
 
     pub fn search_file(&self, name_or_path: &str) -> Result<PcsFileSearchResult, AppError> {
+        info!("搜索文件 (search_file): name_or_path={}", name_or_path);
         const PATH: &str = "/rest/2.0/xpan/file";
         #[derive(Serialize)]
         struct Params<'a> {
@@ -1293,6 +1347,10 @@ impl BaiduPcsClient {
         down: bool,
         fs_ids: Vec<u64>,
     ) -> Result<PcsFileMetaResult, AppError> {
+        info!(
+            "查询文件信息 (get_file_info): down={}, fs_ids={:?}",
+            down, fs_ids
+        );
         const PATH: &str = "/rest/2.0/xpan/multimedia";
         // 参数名称	类型	是否必填	示例	参数位置	描述
         // method	string	是	filemetas	URL参数	本接口固定为filemetas
@@ -1358,6 +1416,7 @@ impl BaiduPcsClient {
         short_url: &str,
         pwd: Option<&str>,
     ) -> Result<ShareVerifyResult, AppError> {
+        info!("验证分享提取码 (share_verify): short_url={}", short_url);
         const PATH: &str = "/apaas/1.0/share/verify";
         #[derive(Serialize)]
         struct Params<'a> {
@@ -1393,6 +1452,10 @@ impl BaiduPcsClient {
         page: Option<u32>,
         page_size: Option<u32>,
     ) -> Result<ShareFileListResult, AppError> {
+        info!(
+            "查询分享文件列表 (share_list): short_url={}, dir={:?}, page={:?}, page_size={:?}",
+            short_url, dir, page, page_size
+        );
         const PATH: &str = "/apaas/1.0/share/list";
         #[derive(Serialize)]
         struct Params<'a> {
@@ -1449,6 +1512,10 @@ impl BaiduPcsClient {
         spwd: &str,
         fsid_list: &[String],
     ) -> Result<ShareDownloadResult, AppError> {
+        info!(
+            "获取分享下载地址 (share_download): short_url={}, fsids={:?}",
+            short_url, fsid_list
+        );
         const PATH: &str = "/apaas/1.0/share/download";
         let timestamp = chrono::Utc::now().timestamp() as u64;
         let sign = self.share_sign(short_url, fsid_list, timestamp);
@@ -1495,11 +1562,13 @@ impl BaiduPcsClient {
     where
         F: Fn(u64, u64) + Send + Sync + 'static,
     {
+        info!("下载文件 (download): local_path={}", local_path);
         let full_url = format!(
             "{}&access_token={}",
             download_link,
             self.access_token.as_str()
         );
+        trace!("download GET {}", full_url);
         let fut = async {
             let mut resp = self
                 .client
@@ -1547,6 +1616,10 @@ impl BaiduPcsClient {
         offset: u64,
         len: usize,
     ) -> Result<Vec<u8>, AppError> {
+        info!(
+            "分段下载文件 (download_range_by_path): path={}, offset={}, len={}",
+            path, offset, len
+        );
         // Resolve fs_id by path
         let fs_id = self.get_fs_id_by_path(path)?;
         // Get file info (including dlink)
@@ -1575,6 +1648,7 @@ impl BaiduPcsClient {
             offset,
             offset + (len as u64).saturating_sub(1)
         );
+        trace!("download_range_by_path GET {} ({})", url, range_header);
 
         let fut = async {
             let resp = self
@@ -1612,6 +1686,7 @@ impl BaiduPcsClient {
     /// # Errors
     /// * `AppError` - 文件ID查询失败
     pub(crate) fn get_fs_id_by_path(&self, path: &str) -> Result<u64, AppError> {
+        info!("通过路径反查文件ID (get_fs_id_by_path): path={}", path);
         // 百度网盘在下载等操作时 需要用fsid，但是一般我们都是通过path管理 需要维护一个表
         if path.ends_with("/") {
             // 目录
@@ -1646,6 +1721,10 @@ impl BaiduPcsClient {
     where
         F: Fn(u64, u64) + Send + Sync + 'static,
     {
+        info!(
+            "下载文件 (down_file): remote={}, local_path={}",
+            remote, local_path
+        );
         self.get_fs_id_by_path(remote)
             .and_then(|fs_id| self.down_file_by_id(fs_id, local_path, progress))
     }
@@ -1659,6 +1738,10 @@ impl BaiduPcsClient {
     where
         F: Fn(u64, u64) + Send + Sync + 'static,
     {
+        info!(
+            "按ID下载文件 (down_file_by_id): fs_id={}, local_path={}",
+            fs_id, local_path
+        );
         self.get_file_info(true, vec![fs_id]).and_then(|meta_res| {
             if meta_res.list.is_empty() {
                 Err(AppError::new(
@@ -1673,7 +1756,7 @@ impl BaiduPcsClient {
                     None,
                 ))
             } else {
-                info!("准备下载文件 {:?}", meta_res.list[0]);
+                info!("准备下载文件: {:?}", meta_res.list[0]);
                 let down_link = meta_res.list[0].dlink.as_ref().unwrap();
                 self.download(down_link, local_path, progress)
             }
@@ -1694,6 +1777,10 @@ impl BaiduPcsClient {
         local_file: &str,
         pcs_path: &str,
     ) -> Result<Vec<PcsFileUploadResult>, AppError> {
+        info!(
+            "备份文件 (backup_file): local_file={}, pcs_path={}",
+            local_file, pcs_path
+        );
         let file = File::open(local_file)?;
         let mut rs: Vec<PcsFileUploadResult> = Vec::new();
         if file.metadata()?.is_file() {

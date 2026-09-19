@@ -2,6 +2,13 @@
 
 本文件记录各版本的可见变更。格式参考 [Keep a Changelog](https://keepachangelog.com/)，版本号遵循语义化版本（SemVer）。
 
+## [0.5.1] - 2026-09-19
+
+### 变更 (Changed)
+- **日志级别调整**：
+  - 将底层 HTTP GET / POST 请求路径及响应文本降级为 `trace!` 级别，默认及日常排查下不可见。
+  - 将 SDK 客户端被调用的各操作方法（如文件上传、下载、删除、移动、复制、创建目录、配额查询等动作）日志级别设为 `info!`，便于直观追踪具体操作行为。
+
 ## [0.5.0] - 2026-09-17
 
 ### 新增 (Added)
@@ -50,6 +57,8 @@
   - `--rx-band <RATE>`：仅下载限速（如 `100M` = 100MB/s），优先级高于 `--band`。
   - 基于令牌桶算法；`--tx-band`/`--rx-band` 覆盖 `--band`。速率解析支持 `k/K`(1024 基准)、`M`、`G` 及 `KiB/MiB` 等写法。
 
+[0.5.1]: https://github.com/Yifei0727/baidu-pcs-rs-sdk/releases/tag/v0.5.1
+[0.5.0]: https://github.com/Yifei0727/baidu-pcs-rs-sdk/releases/tag/v0.5.0
 [0.4.3]: https://github.com/Yifei0727/baidu-pcs-rs-sdk/releases/tag/v0.4.3
 [0.4.2]: https://github.com/Yifei0727/baidu-pcs-rs-sdk/releases/tag/v0.4.2
 [0.4.1]: https://github.com/Yifei0727/baidu-pcs-rs-sdk/releases/tag/v0.4.1
