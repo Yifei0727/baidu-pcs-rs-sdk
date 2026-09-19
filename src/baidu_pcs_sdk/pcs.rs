@@ -68,6 +68,7 @@ pub struct BaiduPcsClient {
     user_info: Option<PcsUserInfo>,
     disk_quota: Option<PcsDiskQuota>,
     /// 指定的 DNS 服务器（逗号分隔），用于网络请求解析域名
+    #[allow(dead_code)]
     dns: Option<String>,
     /// 上传速率限制器（None 表示不限速）
     tx_limiter: Option<Arc<crate::baidu_pcs_sdk::rate_limit::RateLimiter>>,

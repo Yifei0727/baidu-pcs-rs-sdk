@@ -1,6 +1,6 @@
 [package]
 name = "baidu-pcs-rs-sdk"
-version = "0.5.2"
+version = "0.6.0"
 edition = "2021"
 license = "MIT"
 
@@ -16,33 +16,56 @@ path = "src/lib.rs"
 [[bin]]
 name = "baidu-pcs-cli-rs"
 path = "src/main.rs"
+required-features = ["cli"]
 
+[features]
+# 默认特性为空：作为 SDK 引入时默认仅编译纯净 Core SDK，不引入任何 CLI 命令行依赖，且仅使用系统原生 DNS (getaddrinfo)
+default = []
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+# CLI 命令行工具特性：提供终端交互、进度条、配置文件管理等能力（通过 cargo install 或构建 CLI 二进制时启用）
+cli = [
+    "dep:clap",
+    "dep:clap_complete",
+    "dep:indicatif",
+    "dep:simplelog",
+    "dep:directories",
+    "dep:byte-unit",
+    "dep:toml",
+]
 
+# 自定义 DNS 特性（基于 hickory-resolver 提供指定 nameserver 解析能力）
+# 第三方集成或特定环境（如 macOS 后端）若需避免自定义 UDP 解析冲突，可保持关闭以纯粹使用系统原生 DNS (getaddrinfo)
+dns = [
+    "dep:hickory-resolver",
+    "reqwest/hickory-dns",
+]
+custom-dns = ["dns"]
+
+# ==================== Core SDK 核心库依赖 ====================
 [dependencies]
-toml = "0.9.5"
+# HTTP 客户端：默认禁用 hickory-dns，启用 rustls-tls 避免 OpenSSL 依赖；仅在开启 dns 特性时激活 reqwest/hickory-dns
+reqwest = { version = "0.12.15", features = ["multipart", "stream", "json", "blocking", "rustls-tls"], default-features = false }
 serde = { version = "1.0.196", features = ["derive"] }
-# Enable hickory-dns and rustls-tls, disable native-tls to avoid OpenSSL dependency
-reqwest = { version = "0.12.15", features = ["multipart", "stream", "json", "blocking", "rustls-tls", "hickory-dns"], default-features = false }
 serde_json = "1.0.112"
 tokio = { version = "1.12.0", features = ["full"] }
+tokio-util = "0.7.10"
+futures = "0.3.30"
+bytes = "1"
 getset = "0.1.2"
 chrono = { version = "0.4.19", features = ["serde"] }
 log = "0.4.20"
-tokio-util = "0.7.10"
-futures = "0.3.30"
 md-5 = "0.10.6"
 hex = "0.4.3"
-clap = { version = "4.4.18", features = ["derive"] }
-clap_complete = "4"
-bytefmt = "0.1.7"
-bytes = "1"
-indicatif = { version = "0.18.0", features = ["improved_unicode"] }
-simplelog = "0.12.1"
-directories = "6.0.0"
-byte-unit = "5.1.6"
-# Hickory resolver to build a custom DNS client with specified nameservers
-hickory-resolver = { version = "0.24", default-features = false, features = ["tokio-runtime"] }
-# SHA-256 for share download signature
 sha2 = "0.10"
+
+# ==================== CLI 专用依赖（仅在启用 cli feature 时编译） ====================
+clap = { version = "4.4.18", features = ["derive"], optional = true }
+clap_complete = { version = "4", optional = true }
+indicatif = { version = "0.18.0", features = ["improved_unicode"], optional = true }
+simplelog = { version = "0.12.1", optional = true }
+directories = { version = "6.0.0", optional = true }
+byte-unit = { version = "5.1.6", optional = true }
+toml = { version = "0.9.5", optional = true }
+
+# ==================== DNS 特性可选依赖（仅在启用 dns feature 时编译） ====================
+hickory-resolver = { version = "0.24", default-features = false, features = ["tokio-runtime"], optional = true }

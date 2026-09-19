@@ -4,3 +4,7 @@
 BAIDU_PCS_APP_NAME = "bpcs_uploader"
 BAIDU_PCS_APP_KEY = "uFBSHEwWE6DD94SQx9z77vgG"
 BAIDU_PCS_APP_SECRET = "7w6wdSFsTk6Vv586r1W1ozHLoDGhXogD"
+
+[alias]
+cli = "run --all-features --"
+b = "build --all-features"

@@ -11,6 +11,7 @@ use std::{error::Error, fs};
 use tokio_util::either::Either;
 use tokio_util::either::Either::{Left, Right};
 
+#[allow(dead_code)]
 pub struct LocalSyncFileManager {
     pub path: String,
     pub size: u64,
@@ -18,6 +19,7 @@ pub struct LocalSyncFileManager {
 }
 
 impl LocalSyncFileManager {
+    #[allow(dead_code)]
     pub fn is_file_has_synced(&self, _path: &Path) -> bool {
         false
     }

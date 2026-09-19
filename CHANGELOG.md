@@ -2,6 +2,21 @@
 
 本文件记录各版本的可见变更。格式参考 [Keep a Changelog](https://keepachangelog.com/)，版本号遵循语义化版本（SemVer）。
 
+## [0.6.0] - 2026-09-19
+
+### 变更 (Changed)
+- **依赖分拆与架构解耦（Core SDK 与 CLI 隔离）**：
+  - 将 `clap`、`clap_complete`、`indicatif`、`simplelog`、`directories`、`byte-unit`、`toml` 等命令行专用依赖迁移为可选依赖，统一通过 `cli` feature 管理。
+  - 将 `Cargo.toml` 中的默认特性设为空（`default = []`）。当下游项目作为 SDK 引入 `baidu-pcs-rs-sdk = "0.6.0"` 时，默认仅编译纯净 Core SDK，零 CLI 依赖，编译极速轻量。
+  - 二进制目标 `baidu-pcs-cli-rs` 设置 `required-features = ["cli"]`；CI 构建与发布的二进制包默认启用 `--all-features`。
+- **自定义 DNS 特性解耦与可选化**：
+  - 将 `hickory-resolver` 与 `reqwest/hickory-dns` 抽离为独立的 `dns` 可选特性（提供 `custom-dns` 别名）。
+  - 默认情况下（未启用 `dns` 特性时）完全不引入 `hickory-resolver`，直接使用操作系统原生 DNS（`getaddrinfo`），彻底消除第三方 SDK 集成（尤其 macOS 后端/沙盒应用）时的 UDP DNS 冲突与限制。
+  - 任何平台如需自定义 DNS nameserver 解析，按需显式声明 `features = ["dns"]` 即可正常使用。
+- **清理工程冗余与告警**：
+  - 移除全工程未使用的废弃依赖 `bytefmt`。
+  - 清理各模块中因条件编译与未读字段产生的 `dead_code` 与 `unused_mut` 编译告警。
+
 ## [0.5.2] - 2026-09-19
 
 ### 修复 (Fixed)

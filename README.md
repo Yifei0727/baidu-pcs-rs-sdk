@@ -43,26 +43,26 @@
       > export BAIDU_PCS_APP_NAME="bpcs_uploader"
       > export BAIDU_PCS_APP_KEY="uFBSHEwWE6DD94SQx9z77vgG"
       > export BAIDU_PCS_APP_SECRET="7w6wdSFsTk6Vv586r1W1ozHLoDGhXogD"
-      > cargo install baidu-pcs-rs-sdk
+      > cargo install baidu-pcs-rs-sdk --all-features
       > ```
       > * Windows cmd.exe 示例
       > ```bat
       > set BAIDU_PCS_APP_NAME=bpcs_uploader
       > set BAIDU_PCS_APP_KEY=uFBSHEwWE6DD94SQx9z77vgG
       > set BAIDU_PCS_APP_SECRET=7w6wdSFsTk6Vv586r1W1ozHLoDGhXogD
-      > cargo install baidu-pcs-rs-sdk
+      > cargo install baidu-pcs-rs-sdk --all-features
       > ```
       > * Windows PowerShell 示例
       > ```powershell
       > $Env:BAIDU_PCS_APP_NAME="bpcs_uploader"
       > $Env:BAIDU_PCS_APP_KEY="uFBSHEwWE6DD94SQx9z77vgG"
       > $Env:BAIDU_PCS_APP_SECRET="7w6wdSFsTk6Vv586r1W1ozHLoDGhXogD"
-      > cargo install baidu-pcs-rs-sdk
+      > cargo install baidu-pcs-rs-sdk --all-features
       > ```
 
     - 安装方式：
 
-        - 使用 cargo 安装（示例）: 先导出上述环境变量后，再执行 cargo install baidu-pcs-rs-sdk
+        - 使用 cargo 安装（示例）: 先导出上述环境变量后，再执行 cargo install baidu-pcs-rs-sdk --all-features
         - 或在源码仓库中执行：先导出环境变量，再 cargo build --release
 
     - 生成的可执行文件名为 baidu-pcs-cli-rs（注意：CLI 帮助中展示的程序名为 baidu-pan-cli-rs，为显示名，与可执行文件名不同）。
@@ -157,7 +157,15 @@
 
    3.1 添加依赖
 
-    - 在你的 Cargo.toml 中添加：baidu-pcs-rs-sdk = "0.2.1"
+    - 在你的 `Cargo.toml` 中添加：
+      ```toml
+      [dependencies]
+      # 默认仅引入纯净 Core SDK（无任何 CLI 命令行依赖，轻量快速，默认使用系统原生 DNS）
+      baidu-pcs-rs-sdk = "0.6.0"
+
+      # 若需要自定义 DNS 解析能力（基于 hickory-resolver 指定 nameserver 解析）：
+      # baidu-pcs-rs-sdk = { version = "0.6.0", features = ["dns"] }
+      ```
 
    3.2 初始化与认证
 

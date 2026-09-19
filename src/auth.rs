@@ -5,6 +5,7 @@ use baidu_pcs_rs_sdk::baidu_pcs_sdk::PcsAccessToken;
 use log::{debug, error, info};
 use std::thread::sleep;
 
+#[allow(dead_code)]
 pub fn device_auth() -> PcsAccessToken {
     device_auth_with_dns(None)
 }

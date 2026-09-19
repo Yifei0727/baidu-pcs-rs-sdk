@@ -68,21 +68,21 @@ jobs:
 
       - name: Build (Windows) on ${{ matrix.os }}
         if: runner.os == 'Windows'
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --all-features --target ${{ matrix.target }}
 
       - name: Build (Linux) on ${{ matrix.os }}
         if: runner.os == 'Linux'
         shell: bash
         run: |
           if [ "${{ matrix.useCross }}" = "true" ]; then
-            cross build --release --target ${{ matrix.target }}
+            cross build --release --all-features --target ${{ matrix.target }}
           else
-            cargo build --release --target ${{ matrix.target }}
+            cargo build --release --all-features --target ${{ matrix.target }}
           fi
       - name: Build (MacOS) on ${{ matrix.os }}
         if: runner.os == 'macOS'
         shell: bash
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --all-features --target ${{ matrix.target }}
 
       - name: Package artifact (Unix)
         if: runner.os != 'Windows'

@@ -9,6 +9,7 @@ pub struct BaiduPanClient {
     client: reqwest::Client,
     pcs_node: BaiduPcsApp,
     /// 指定的 DNS 服务器（逗号分隔），用于网络请求解析域名
+    #[allow(dead_code)]
     dns: Option<String>,
 }
 
@@ -227,7 +228,7 @@ impl BaiduPanDeviceAuthClient for BaiduPanClient {
 #[cfg(test)]
 mod test {
     use crate::baidu_pcs_sdk::pcs_device_auth::{
-        BaiduPanClient, BaiduPanDeviceAuthClient, PcsDeviceTicket,
+        BaiduPanClient, BaiduPanDeviceAuthClient,
     };
     use crate::baidu_pcs_sdk::{BaiduPcsApp, PcsAccessToken};
     use std::env;

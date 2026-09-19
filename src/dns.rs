@@ -1,15 +1,24 @@
+use reqwest::ClientBuilder;
+use std::net::{IpAddr, SocketAddr};
+
+#[cfg(feature = "dns")]
 use hickory_resolver::config::{
     NameServerConfig, NameServerConfigGroup, Protocol, ResolverConfig, ResolverOpts,
 };
+#[cfg(feature = "dns")]
 use hickory_resolver::name_server::TokioConnectionProvider;
+#[cfg(feature = "dns")]
 use hickory_resolver::AsyncResolver as HickoryAsyncResolver;
+#[cfg(feature = "dns")]
 use reqwest::dns::{Addrs, Name, Resolve};
-use reqwest::ClientBuilder;
+#[cfg(feature = "dns")]
 use std::future::Future;
-use std::net::{IpAddr, SocketAddr};
+#[cfg(feature = "dns")]
 use std::pin::Pin;
+#[cfg(feature = "dns")]
 use std::sync::Arc;
 
+#[allow(dead_code)]
 pub(crate) fn parse_dns_servers(dns: &str) -> Vec<SocketAddr> {
     dns.split(',')
         .filter_map(|s| {
@@ -28,10 +37,12 @@ pub(crate) fn parse_dns_servers(dns: &str) -> Vec<SocketAddr> {
         .collect()
 }
 
+#[cfg(feature = "dns")]
 struct HickoryReqwestResolver {
     inner: HickoryAsyncResolver<TokioConnectionProvider>,
 }
 
+#[cfg(feature = "dns")]
 impl Resolve for HickoryReqwestResolver {
     fn resolve(
         &self,
@@ -49,38 +60,49 @@ impl Resolve for HickoryReqwestResolver {
     }
 }
 
-/// If `dns` is provided, build a hickory AsyncResolver with the specified name servers
-/// and inject it into the reqwest client so that all hostnames are resolved via these servers.
+/// 若提供了 `dns` 且启用了 `dns` 特性，则构建并注入基于 hickory-resolver 的自定义 DNS 解析器。
+/// 若未启用 `dns` 特性（例如第三方集成或 macOS 后端关闭了此特性），则完全基于系统原生 DNS（getaddrinfo），不引入 hickory-resolver。
 pub(crate) fn use_custom_dns_if_present(
     client_builder: ClientBuilder,
     dns: Option<&str>,
 ) -> ClientBuilder {
-    let Some(hosts_str) = dns else {
-        return client_builder;
-    };
+    #[cfg(feature = "dns")]
+    {
+        let Some(hosts_str) = dns else {
+            return client_builder;
+        };
 
-    let servers = parse_dns_servers(hosts_str);
-    if servers.is_empty() {
-        return client_builder;
+        let servers = parse_dns_servers(hosts_str);
+        if servers.is_empty() {
+            return client_builder;
+        }
+
+        let mut group = NameServerConfigGroup::with_capacity(servers.len());
+        for addr in servers {
+            group.push(NameServerConfig::new(addr, Protocol::Udp));
+            group.push(NameServerConfig::new(addr, Protocol::Tcp));
+        }
+        let resolver_cfg = ResolverConfig::from_parts(None, vec![], group);
+        let resolver_opts = ResolverOpts::default();
+
+        // 构建绑定当前 Tokio runtime 的 Hickory AsyncResolver
+        let inner = HickoryAsyncResolver::new(
+            resolver_cfg,
+            resolver_opts,
+            TokioConnectionProvider::default(),
+        );
+
+        let resolver = HickoryReqwestResolver { inner };
+        client_builder.dns_resolver(Arc::new(resolver))
     }
 
-    let mut group = NameServerConfigGroup::with_capacity(servers.len());
-    for addr in servers {
-        group.push(NameServerConfig::new(addr, Protocol::Udp));
-        group.push(NameServerConfig::new(addr, Protocol::Tcp));
+    #[cfg(not(feature = "dns"))]
+    {
+        if dns.is_some() {
+            log::warn!("未启用 dns 特性，已忽略自定义 DNS 配置并使用系统原生 DNS (getaddrinfo)");
+        }
+        client_builder
     }
-    let resolver_cfg = ResolverConfig::from_parts(None, vec![], group);
-    let resolver_opts = ResolverOpts::default();
-
-    // Build an AsyncResolver that uses the current Tokio runtime
-    let inner = HickoryAsyncResolver::new(
-        resolver_cfg,
-        resolver_opts,
-        TokioConnectionProvider::default(),
-    );
-
-    let resolver = HickoryReqwestResolver { inner };
-    client_builder.dns_resolver(Arc::new(resolver))
 }
 
 #[cfg(test)]
@@ -106,5 +128,17 @@ mod tests {
     fn test_parse_dns_servers_ignores_empty() {
         let out = parse_dns_servers(",,  ,\n\t");
         assert!(out.is_empty());
+    }
+
+    #[test]
+    fn test_use_custom_dns_none() {
+        let builder = reqwest::Client::builder();
+        let _ = use_custom_dns_if_present(builder, None);
+    }
+
+    #[test]
+    fn test_use_custom_dns_with_server() {
+        let builder = reqwest::Client::builder();
+        let _ = use_custom_dns_if_present(builder, Some("8.8.8.8"));
     }
 }
