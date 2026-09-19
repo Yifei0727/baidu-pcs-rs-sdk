@@ -407,10 +407,10 @@ impl BaiduPcsClient {
         #[derive(Serialize)]
         struct Params {
             /// `checkfree` 是否检查免费信息，0为不查，1为查，默认为0
-            #[serde(alias = "checkfree")]
+            #[serde(rename = "checkfree")]
             check_free: u8,
             /// `checkexpire` 是否检查过期信息，0为不查，1为查，默认为0
-            #[serde(alias = "checkexpire")]
+            #[serde(rename = "checkexpire")]
             check_expire: u8,
         }
         self.request(
@@ -505,7 +505,7 @@ impl BaiduPcsClient {
         struct DeleteAttributes {
             /// 是否异步删除，0 同步，1 自适应，2 异步
             r#async: u8,
-            #[serde(alias = "filelist")]
+            #[serde(rename = "filelist")]
             file_list: String,
         }
         let files = DeleteAttributes {
@@ -575,7 +575,7 @@ impl BaiduPcsClient {
         #[derive(Serialize)]
         struct FileManagerAttributes {
             r#async: u8,
-            #[serde(alias = "filelist")]
+            #[serde(rename = "filelist")]
             file_list: String,
         }
         let dest_path = PathBuf::from(dest);
@@ -1030,10 +1030,10 @@ impl BaiduPcsClient {
             #[serde(rename = "uploadid")]
             upload_id: Option<String>,
             /// 文件MD5，32位小写
-            #[serde(alias = "content-md5")]
+            #[serde(rename = "content-md5")]
             content_md5: Option<String>,
             /// 文件校验段的MD5，32位小写，校验段对应文件前256KB
-            #[serde(alias = "slice-md5")]
+            #[serde(rename = "slice-md5")]
             slice_md5: Option<String>,
             /// 客户端创建时间(精确到秒)，默认为当前时间戳
             local_ctime: Option<i64>,
